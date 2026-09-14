@@ -1,0 +1,199 @@
+/* 少了这行会出事：.float-root 是 width/height 100% 再叠 padding，
+   content-box 下内容盒会撑到 212x248，卡片被推出窗口右下角、圆角被裁掉。
+   非透明模式因为 padding 为 0 恰好看不出来，只会坑到透明模式。 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body.float-body {
+  font-family: 'Microsoft YaHei UI', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: #16324a;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#root {
+  height: 100%;
+}
+
+.float-root {
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+}
+
+/* 不透明模式下让卡片铺满整个窗口，避免四角露出突兀的空白 */
+.float-root.is-opaque {
+  padding: 0;
+}
+
+.float-root.is-opaque .float-card {
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.float-card {
+  position: relative;
+  height: 100%;
+  padding: 10px 12px 12px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid #d5e5f4;
+  box-shadow: 0 10px 28px rgba(22, 50, 74, 0.16);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  -webkit-app-region: drag;
+}
+
+.float-grip {
+  width: 30px;
+  height: 4px;
+  border-radius: 2px;
+  background: #dbe7f3;
+  margin-bottom: 4px;
+  flex: 0 0 auto;
+}
+
+.float-drop {
+  -webkit-app-region: drag;
+  animation: bob 3.4s ease-in-out infinite;
+}
+
+.drop-outline {
+  fill: #f1f7fd;
+}
+
+.drop-water {
+  fill: #4aa3f0;
+}
+
+.drop-water.is-done {
+  fill: #2fa84f;
+}
+
+.drop-stroke {
+  fill: none;
+  stroke: #1e88e5;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+.float-title {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.float-sub {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #6b8299;
+  font-variant-numeric: tabular-nums;
+}
+
+.float-actions {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  margin-top: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.float-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  border: 1px solid #cfe0ef;
+  border-radius: 9px;
+  background: #ffffff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.float-btn:hover {
+  background: #e4f0fc;
+  border-color: #1e88e5;
+}
+
+.float-btn.is-primary {
+  background: #1e88e5;
+  border-color: #1e88e5;
+  color: #fff;
+}
+
+.float-btn.is-primary:hover {
+  background: #0f6fd1;
+}
+
+.float-fatal {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #d94a4a;
+  word-break: break-all;
+}
+
+.float-later {
+  margin-top: 8px;
+  border: 0;
+  background: none;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: #6b8299;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.float-later:hover {
+  color: #16324a;
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.92) translateY(10px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.03) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float-drop {
+    animation: none;
+  }
+  .float-card.is-popping {
+    animation: none;
+  }
+}
+
+.float-card.is-popping {
+  animation: pop 0.38s cubic-bezier(0.22, 1.2, 0.36, 1);
+}

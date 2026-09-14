@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+release/
+build-out/
+.tmp-test/
+*.tsbuildinfo
+electron.vite.config.*.mjs
+_tmp_*
+*.log
+.DS_Store

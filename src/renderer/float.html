@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>该喝水了</title>
+  </head>
+  <body class="float-body">
+    <!--
+      静态兜底文案。React 挂载后会替换掉它。
+      浮窗没有窗口边框，一旦前端脚本没启动，屏幕上就是一块完全空白 ——
+      和「窗口没弹出来」「窗口渲染失败」长得一模一样。有这行字就分得清了。
+    -->
+    <div id="root">
+      <div style="font-family: system-ui, 'Microsoft YaHei UI', sans-serif; font-size: 13px; line-height: 1.7; color: #16324a; padding: 14px">
+        正在加载小水滴…<br />
+        <span style="color: #6b8299">如果这行字一直不变，说明前端脚本没能启动。</span>
+      </div>
+    </div>
+    <script type="module" src="./float.tsx"></script>
+  </body>
+</html>
