@@ -155,6 +155,21 @@ CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - 吊销功能无法检查证书是否�
 `registry.npmmirror.com` 和 `npmmirror.com/mirrors/` 是通的，走镜像即可 ——
 `scripts/dist.mjs` 已经把这个注入好了。
 
+**GitHub 的 22 端口在本机被拒，SSH 改走 443。**
+`ssh github.com` 直接报 `Connection refused`。GitHub 官方提供 443 备用入口，
+所以 `~/.ssh/config` 里加了一段：
+
+```
+Host github.com
+  HostName ssh.github.com
+  Port 443
+  User git
+```
+
+**HTTPS 反而是通的** —— `git ls-remote https://github.com/...` 正常。
+（`@electron/get` 那边失败是系统 schannel 的证书吊销检查，git 自带的 libcurl 不走那条路。）
+所以 SSH 出问题时可以随时退回 HTTPS + Personal Access Token。
+
 **Electron 二进制从本地缓存解压安装。**
 本机网络访问不到 GitHub Releases，所以 `node_modules/electron/dist` 是从
 `%LOCALAPPDATA%/electron/Cache` 里已有的 `electron-v43.3.0-win32-x64.zip` 手动解压的。
