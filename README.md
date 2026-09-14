@@ -36,6 +36,23 @@ pnpm dist             # 打 Windows 安装包 + 便携版，输出到 release/
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
 `%LOCALAPPDATA%/electron-builder/Cache`，之后就快了。
 
+### 发布版本
+
+推一个 `v*` 的 tag 就会触发 GitHub Actions，在 `windows-latest` 上重新构建
+并把两个安装包挂到 Release 上：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，
+任何一步失败都不会发布。
+
+之所以不"本地打完包再上传"：这台开发机除了 git 自己的 libcurl，
+所有到 GitHub 的 HTTPS 通道都被证书吊销检查挡住了，而 Release 资产只能走 HTTP 上传
+（SSH 管不了）。交给 CI 反而更省事，也顺带保证 Release 里的包一定能从源码重现。
+
 ## 小水滴怎么才看得见
 
 桌面小水滴**只在提醒真正触发的那一刻出现**，然后 20 秒后自动隐藏 —— 它不是常驻挂件。
