@@ -4,7 +4,7 @@
  * 产出：
  *   resources/icon.png            256x256 应用图标（水滴）
  *   resources/icon.ico            多尺寸 Windows 图标（16/24/32/48/64/128/256）
- *   resources/tray/tray-<n>.png   32x32 托盘进度环，n = 0,10,...,100
+ *   resources/tray/tray-<n>.png   32x32 托盘水滴，n = 0,10,...,100 即水位刻度
  *
  * 为什么 ICO 也自己写：electron-builder 默认用它的 WASM 图标工具做 png→ico 转换，
  * 那东西在内存受限的环境里会直接 `WebAssembly.Memory(): could not allocate memory`
@@ -206,31 +206,55 @@ function dropSampler(px, py) {
   return { rgb: lerp(DROP_TOP, DROP_BOTTOM, (py - apex) / (1 - apex)), a: 1 }
 }
 
-/* --------------------------------------------------- 进度环（托盘图标）  */
+/* ------------------------------------------- 水滴水位（托盘图标）  */
 
-const RING_TRACK = [136, 135, 128]
-const RING_TRACK_ALPHA = 0.5
-const RING_PROGRESS = [30, 136, 229]
-const RING_DONE = [47, 168, 79]
+const TRAY_EMPTY = [136, 135, 128]
+const TRAY_EMPTY_ALPHA = 0.28
+const TRAY_STROKE_ALPHA = 0.8
+const TRAY_WATER_TOP = [96, 181, 245]
+const TRAY_WATER_BOTTOM = [24, 116, 206]
+const TRAY_DONE_TOP = [86, 196, 112]
+const TRAY_DONE_BOTTOM = [40, 152, 74]
 
-function ringSampler(progress) {
-  const cx = 0.5
-  const cy = 0.5
-  const outer = 0.4375
-  const inner = 0.28125
-  const mid = (outer + inner) / 2
-  const arc = progress * Math.PI * 2
-  const accent = progress >= 1 ? RING_DONE : RING_PROGRESS
+// 与 dropSampler 同形，只是放大到几乎占满 32x32 方格，边缘留一点呼吸位
+const TRAY_CX = 0.5
+const TRAY_APEX = 0.085
+const TRAY_CY = 0.6
+const TRAY_R = 0.345
+const TRAY_BOTTOM = TRAY_CY + TRAY_R
+const TRAY_STROKE = 0.05
+
+/**
+ * 点到水滴轮廓的近似垂直距离，在形状内为正，形状外返回 null。
+ * 尖顶那段轮廓是 x = cx ± halfW(py)，直接用横向距离会把描边画歪，
+ * 所以按切线斜率折回垂直方向。
+ */
+function trayDepth(px, py) {
+  if (py < TRAY_APEX || py > TRAY_BOTTOM) return null
+  const dx = Math.abs(px - TRAY_CX)
+  if (py <= TRAY_CY) {
+    const halfW = TRAY_R * Math.sqrt((py - TRAY_APEX) / (TRAY_CY - TRAY_APEX))
+    if (dx > halfW) return null
+    const slope = TRAY_R / (2 * Math.sqrt(Math.max(py - TRAY_APEX, 1e-6) * (TRAY_CY - TRAY_APEX)))
+    return (halfW - dx) / Math.sqrt(1 + slope * slope)
+  }
+  const d = Math.hypot(px - TRAY_CX, py - TRAY_CY)
+  return d > TRAY_R ? null : TRAY_R - d
+}
+
+/** 水滴轮廓固定，水面随进度上升；装满时整颗转绿 */
+function dropLevelSampler(progress) {
+  const level = TRAY_BOTTOM - (TRAY_BOTTOM - TRAY_APEX) * Math.min(1, progress)
+  const done = progress >= 1
+  const top = done ? TRAY_DONE_TOP : TRAY_WATER_TOP
+  const bottom = done ? TRAY_DONE_BOTTOM : TRAY_WATER_BOTTOM
 
   return (px, py) => {
-    const dx = px - cx
-    const dy = py - cy
-    const d = Math.hypot(dx, dy)
-    if (d < inner || d > outer) return null
-    if (progress <= 0) return { rgb: RING_TRACK, a: RING_TRACK_ALPHA }
-    let ang = Math.atan2(dx, -dy)
-    if (ang < 0) ang += Math.PI * 2
-    return ang <= arc ? { rgb: accent, a: 1 } : { rgb: RING_TRACK, a: RING_TRACK_ALPHA }
+    const depth = trayDepth(px, py)
+    if (depth === null) return null
+    if (depth <= TRAY_STROKE) return { rgb: TRAY_EMPTY, a: TRAY_STROKE_ALPHA }
+    if (py < level) return { rgb: TRAY_EMPTY, a: TRAY_EMPTY_ALPHA }
+    return { rgb: lerp(top, bottom, (py - level) / (TRAY_BOTTOM - level)), a: 1 }
   }
 }
 
@@ -254,10 +278,10 @@ const icoPath = join(iconDir, 'icon.ico')
 writeFileSync(icoPath, encodeIco(icoFrames))
 
 for (let percent = 0; percent <= 100; percent += 10) {
-  const png = encodePng(32, 32, rasterize(32, ringSampler(percent / 100)))
+  const png = encodePng(32, 32, rasterize(32, dropLevelSampler(percent / 100)))
   writeFileSync(join(trayDir, `tray-${percent}.png`), png)
 }
 
 console.log(`icon  -> ${iconPath}`)
 console.log(`ico   -> ${icoPath} (${icoSizes.join('/')}, ${icoFrames.length} 帧)`)
-console.log(`tray  -> ${trayDir}/tray-0..100.png (11 帧)`)
+console.log(`tray  -> ${trayDir}/tray-0..100.png (11 帧水位)`)

@@ -2,7 +2,7 @@
 
 Windows 桌面常驻的喝水提醒工具。三种提醒形态并存，互不抢戏：
 
-- **托盘进度环** —— 图标本身就是一个环形进度条，抬头一眼就知道今天喝了多少
+- **托盘水位水滴** —— 图标是一颗水滴，水位随今天喝的量上涨，抬头一眼就知道进度
 - **系统通知** —— 点击通知即记录一杯，不用切窗口
 - **桌面小水滴** —— 右下角飘出一个小水珠，水量随进度上涨，可直接点快捷记录
 
@@ -29,8 +29,8 @@ pnpm dist             # 打 Windows 安装包 + 便携版，输出到 release/
 
 | 文件 | 说明 |
 | --- | --- |
-| `water-reminder-0.1.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
-| `water-reminder-0.1.0-x64.nsis.7z` | 安装包的载荷数据 |
+| `water-reminder-0.2.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-0.2.0-x64.nsis.7z` | 安装包的载荷数据 |
 | `win-unpacked/` | 免安装的解包版本，双击里面的 `water-reminder.exe` 直接跑 |
 
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
@@ -42,8 +42,8 @@ pnpm dist             # 打 Windows 安装包 + 便携版，输出到 release/
 并把两个安装包挂到 Release 上：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，
@@ -169,7 +169,7 @@ src/
     App.tsx / components/ / styles.css
     float.tsx / float.css
 scripts/
-  gen-icons.mjs      纯 Node 生成应用图标与 11 帧托盘进度环
+  gen-icons.mjs      纯 Node 生成应用图标与 11 帧托盘水位水滴
   core-test.ts       核心逻辑测试
 resources/           图标资源（打包时复制到 resources/assets）
 ```
@@ -198,7 +198,7 @@ Node 对它的具名导出探测不生效，会直接报 `does not provide an ex
 `Electron failed to install correctly`。已在 `electron.vite.config.ts` 里显式声明。
 
 **图标全部由 `scripts/gen-icons.mjs` 生成，一个二进制依赖都不引。**
-托盘进度环按 10% 一档量化成 11 帧 PNG，按需缓存 `nativeImage`；
+托盘水位按 10% 一档量化成 11 帧 PNG，按需缓存 `nativeImage`；
 应用图标直接写出 7 帧多尺寸 `.ico`（小尺寸 BMP、大尺寸 PNG 内嵌）。
 
 两条路都不走的原因：主进程没有 canvas，而 sharp / canvas 是原生模块，

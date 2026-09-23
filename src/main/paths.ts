@@ -17,7 +17,7 @@ export function appIconPath(): string {
 
 const trayCache = new Map<number, NativeImage>()
 
-/** 按进度取托盘图标；进度按 10% 一档量化，正好对上预生成的 11 帧 */
+/** 按水位取托盘图标；水位按 10% 一档量化，正好对上预生成的 11 帧 */
 export function trayIconImage(percent: number): NativeImage {
   const bucket = Math.min(100, Math.max(0, Math.round((percent * 100) / 10) * 10))
   const cached = trayCache.get(bucket)

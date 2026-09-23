@@ -1,8 +1,8 @@
 {
   "name": "water-reminder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "桌面喝水提醒 —— 托盘进度环 / 系统通知 / 桌面小水滴",
+  "description": "桌面喝水提醒 —— 托盘水位水滴 / 系统通知 / 桌面小水滴",
   "author": "tomcato",
   "main": "./out/main/index.js",
   "scripts": {
