@@ -20,7 +20,23 @@ import { Scheduler } from './scheduler'
 import { Store } from './store'
 import { TrayController } from './tray'
 
-const APP_ID = 'com.tomcato.water-reminder'
+/**
+ * Windows 通知身份（AppUserModelID）。
+ *
+ * 开发态必须和安装版分开，否则这两个坑一定会踩：
+ *
+ * 1) Electron 会按当前 AUMID 自动生成一个开始菜单快捷方式（文件名 Electron.lnk，
+ *    位于 %APPDATA%\Microsoft\Windows\Start Menu\Programs），因为 Windows 要求
+ *    「AUMID 必须有一个开始菜单快捷方式」才肯把通知归属于本应用。
+ * 2) 但那个自动生成的快捷方式只写了 target + workingDirectory，**不带应用路径参数**。
+ *
+ * 于是共用同一个 AUMID 时：安装版弹出的通知被点击 → Windows 按 AUMID 找到开发版
+ * 那个快捷方式 → 启动一个裸 electron.exe → 弹出 Electron 欢迎页
+ * （页面还会贴心地提示 "electron.exe path-to-app"）。
+ *
+ * 分开之后，开发版的快捷方式只挂 .dev 的 AUMID，碰不到安装版的通知。
+ */
+const APP_ID = app.isPackaged ? 'com.tomcato.water-reminder' : 'com.tomcato.water-reminder.dev'
 const QUICK_SHORTCUT = 'CommandOrControl+Alt+W'
 const SMOKE = process.env['WATER_SMOKE_TEST'] === '1'
 
@@ -385,7 +401,12 @@ async function init(): Promise<void> {
 
   registerIpc()
   applyCsp()
-  createMainWindow()
+  // 必须把返回值挂回 mainWindow。
+  // 否则窗口虽然建出来了，但模块级引用一直是 null：
+  //   - refresh() 里的 mainWindow?.webContents.send() 全部静默丢弃，主面板收不到实时状态
+  //   - 之后任何一次 showMainWindow() 都会因为 mainWindow 为 null 再建一个窗口，
+  //     启动时那个窗口没人跟踪、又已经显示在屏幕上 —— 变成两个窗口
+  mainWindow = createMainWindow()
   tray.create(buildState())
   applyAutoLaunch()
   registerShortcuts()
@@ -464,7 +485,11 @@ if (!app.requestSingleInstanceLock()) {
     app.setPath('userData', smokeDir())
   }
 
-  // Windows 上不设这个，系统通知根本不会弹 —— 新手第一大坑
+  // Windows 上不设这个，系统通知根本不会弹 —— 新手第一大坑。
+  // 光设还不够：Windows 要求该 AUMID 能对应到一个开始菜单快捷方式，才能
+  // 归属通知、并在点击时把激活事件投回来。安装版的快捷方式由 electron-builder
+  // 的 NSIS 建（shortcutName: 喝水提醒）；开发版的由 Electron 自己建。
+  // 两边的 AUMID 必须不同 —— 原因见文件顶部 APP_ID 的注释。
   app.setAppUserModelId(APP_ID)
 
   app.on('second-instance', () => showMainWindow())

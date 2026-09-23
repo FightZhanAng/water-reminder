@@ -83,6 +83,68 @@ git push origin v0.1.0
 失败，以及渲染层自己量到的 `renderer metrics`（卡片宽高、背景色、水滴是否渲染）。
 有这组数据就能区分「DOM 根本没渲染」和「DOM 正常但窗口没合成上」。
 
+## 通知点击为什么打开了 Electron 欢迎页
+
+踩过一次，记下来。
+
+**症状**：点系统通知，弹出来的不是主面板，而是 Electron 的默认欢迎页 ——
+页面上还贴心地提示 `electron.exe path-to-app`。
+
+**成因链**：
+
+1. Windows 上 toast 通知靠 AppUserModelID（AUMID）归属。光调
+   `app.setAppUserModelId()` 不够 —— Windows 还需要知道「这个 AUMID 该由谁处理」，
+   才能把点击投回运行中的进程。
+2. 它找的是 `HKCU\Software\Classes\AppUserModelId\<AUMID>` 下的 `CustomActivator`。
+   **Electron 不写这个键**：它只写 `HKCU\Software\Classes\CLSID\{guid}`
+   （默认值 `Electron Notification Activator`、`CustomActivator=1`、
+   `LocalServer32=<exe>`）。同机上真正能正常工作的桌面通知应用
+   （Watt Toolkit / Reasonix）都是**两者都有**。
+3. 缺了这个映射，Windows 只能退化成「去启动某个注册过的目标」。而注册表里指向
+   exe 的入口有**两个**：开发版 `electron.exe` 和安装版 `water-reminder.exe`。
+4. 另外 Electron 在开发态还会**自动生成**一个开始菜单快捷方式充当身份：
+   `%APPDATA%\...\Start Menu\Programs\Electron.lnk`，它只写 target +
+   workingDirectory，**不带应用路径参数**（LinkFlags 缺 `HasArguments`）。
+5. 于是安装版的通知被点击 → Windows 挑中了开发版那条路径 → 启动一个裸
+   `electron.exe` → 欢迎页（页面还贴心地提示 `electron.exe path-to-app`）。
+
+**修法（三步，缺一不可 —— 实测只做前两步仍然会弹欢迎页）**：
+
+1. **开发态与安装版用不同的 AUMID**，见 `src/main/index.ts` 里 `APP_ID` 的注释。
+2. **清掉开始菜单里残留的旧 AUMID 快捷方式**（那个 `Electron.lnk`）。改了代码
+   它不会自动失效。
+3. **补上 `HKCU\Software\Classes\AppUserModelId\<AUMID>` 这个键** —— 关键、也最
+   容易漏：
+
+   ```
+   [HKEY_CURRENT_USER\SOFTWARE\Classes\AppUserModelId\com.tomcato.water-reminder]
+   "DisplayName"="喝水提醒"
+   "IconUri"="D:\\App\\water-reminder\\resources\\assets\\icon.png"
+   "IconBackgroundColor"="FF1E88E5"
+   "CustomActivator"="{0D091DC3-8CFF-4FB6-8CAD-47992294943E}"
+   "HasSentNotification"=dword:00000001
+   ```
+
+   CLSID 用 Electron 自己注册的那个：在 `HKCU\Software\Classes\CLSID` 下找
+   `LocalServer32` 指向本应用 exe 的项。补上之后 Windows 会走 COM 激活把点击投回
+   运行中的进程，不再去启动任何新目标。
+
+**这个键没法靠源码自动生成**：CLSID 由 Electron 内部生成，应用拿不到。要么装机后
+手动补（本次做法），要么在启动时扫 `HKCU\Software\Classes\CLSID` 找出
+`LocalServer32 == process.execPath` 的那一项，自己把键写出来。
+
+**排查手法**：
+
+- `.lnk` 二进制：LinkFlags 在偏移 20（4 字节），`0x20` 位是 `HasArguments`；
+  LinkInfo 里的 LocalBasePath 是 target；AUMID 以 `System.AppUserModel.ID` 存在
+  ExtraData 的 PropertyStore 块（`0xA0000009`）里。
+- 注册表：查 `HKCU\Software\Classes\AppUserModelId\<AUMID>` 有没有 `CustomActivator`；
+  再查 `HKCU\Software\Classes\CLSID` 下有没有指向**错误 exe** 的 `LocalServer32`。
+- 注意 `reg query` 打印中文会因控制台代码页显示成乱码，**不代表值写坏了**；
+  用 Python 的 `winreg` 回读确认才准。
+- 写中文注册表值别走命令行参数（会被代码页吃掉），用 UTF-16LE 的 `.reg`
+  文件 + `reg import`，或用 `winreg`。
+
 ## 目录结构
 
 ```
@@ -155,6 +217,14 @@ Node 对它的具名导出探测不生效，会直接报 `does not provide an ex
 - **透明窗口会挡住点击。** Windows 不做逐像素命中测试，小水滴那 200×236 的矩形
   整块都会拦截鼠标。缓解办法是窗口开小 + 默认 20 秒自动隐藏。
 - **开机自启只在安装版生效。** 开发模式下注册的会是 `electron.exe`，没意义还容易残留。
+- **通知激活依赖一个手动补的注册表键。** 见上文「通知点击为什么打开了 Electron 欢迎页」：
+  Electron 不写 `HKCU\Software\Classes\AppUserModelId\<AUMID>`，而这正是把点击投回
+  运行中进程的关键。**重装或换机器后需要重新补**。要免掉这一步，得让应用在启动时
+  自己扫 `HKCU\Software\Classes\CLSID` 找出 `LocalServer32 == process.execPath`
+  的那一项，再把键写出来 —— 目前没做。
+- **开发态点通知仍可能打开欢迎页。** 开发态那个身份快捷方式是 Electron 自己生成的，
+  不带应用路径参数，所以开发版通知被点击时依旧可能启动一个裸 `electron.exe`。
+  安装版已用不同 AUMID 隔开，不受影响。
 - **关闭主窗口只是收进托盘。** 要真正退出走托盘菜单的「退出」或界面里的退出按钮。
 
 ## 环境注意事项
@@ -202,13 +272,22 @@ printf 'electron.exe' > path.txt        # 注意不要带换行
 
 **冒烟自检。**
 `WATER_SMOKE_TEST=1` 会让应用跑一遍启动链路（托盘、窗口、读写、撤销）后自动退出，
-数据写到临时目录不污染正式数据。注意这个自检无法在
-`ELECTRON_RUN_AS_NODE=1` 的环境里运行 —— 那种环境下 electron 会退化成普通 Node，
-`require('electron')` 拿到的是 npm 包路径而不是内置模块。在普通终端里跑：
+数据写到临时目录不污染正式数据。两个前置条件，缺一个都会「静默什么都没发生」：
+
+1. 不能在 `ELECTRON_RUN_AS_NODE=1` 的环境里跑 —— 那种环境下 electron 会退化成普通
+   Node，`require('electron')` 拿到的是 npm 包路径而不是内置模块，启动即崩。
+   这个变量在某些环境里是全局设好的，记得先 `unset`。
+2. 要显式给一个独立的 `--user-data-dir`。单实例锁是在 `app.setPath('userData', ...)`
+   **之前**、用默认 userData 抢的，所以哪怕自检会把数据挪到临时目录，锁仍然和同机
+   其他 Electron 进程打架；锁没抢到就 `app.quit()`，表现是「没有报告、退出码 0」。
 
 ```bash
-WATER_SMOKE_TEST=1 ./node_modules/electron/dist/electron.exe .   # Git Bash
+unset ELECTRON_RUN_AS_NODE
+WATER_SMOKE_TEST=1 ./node_modules/electron/dist/electron.exe . \
+  --user-data-dir="$TEMP/wr-smoke-lock"     # Git Bash
 ```
+
+报告在 `$TEMP/water-reminder-smoke/smoke-report.txt`，正常应打出 `PASS`。
 
 ## 默认参数
 
