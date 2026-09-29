@@ -38,9 +38,9 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 
 | 文件 | 说明 |
 | --- | --- |
-| `water-reminder-0.5.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
-| `water-reminder-0.5.0-portable.exe` | 免安装单文件版，双击直接跑 |
-| `water-reminder-0.5.0-x64.nsis.7z` | 安装包的载荷数据 |
+| `water-reminder-0.6.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-0.6.0-portable.exe` | 免安装单文件版，双击直接跑 |
+| `water-reminder-0.6.0-x64.nsis.7z` | 安装包的载荷数据 |
 | `win-unpacked/` | 免安装的解包版本，双击里面的 `water-reminder.exe` 直接跑 |
 
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
@@ -52,8 +52,8 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 并把两个安装包挂到 Release 上：
 
 ```bash
-git tag -a v0.5.0 -m "喝水提醒 0.5.0"
-git push origin v0.5.0
+git tag -a v0.6.0 -m "喝水提醒 0.6.0"
+git push origin v0.6.0
 ```
 
 工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，

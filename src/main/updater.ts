@@ -2,6 +2,7 @@ import { net } from 'electron'
 import { isNewer, isTrustedReleaseUrl, parseVersion, type UpdateCheck } from '../shared/update'
 
 const REPO = 'FightZhanAng/water-reminder'
+const REPO_PAGE = `https://github.com/${REPO}`
 const RELEASES_PAGE = `https://github.com/${REPO}/releases`
 const TIMEOUT_MS = 10_000
 
@@ -18,6 +19,14 @@ function apiUrl(): string {
 
 export function releasePageUrl(): string {
   return RELEASES_PAGE
+}
+
+/**
+ * 仓库主页。和 releases 页分开导出的理由只有一个：地址只写在主进程这一处，
+ * 渲染层不传 URL 过来 —— 少一条能往系统浏览器里塞任意链接的通道。
+ */
+export function repoPageUrl(): string {
+  return REPO_PAGE
 }
 
 interface ReleasePayload {

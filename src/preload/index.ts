@@ -16,6 +16,7 @@ const api: Api = {
   pause: (minutes: number) => ipcRenderer.invoke('scheduler:pause', minutes),
   resume: () => ipcRenderer.invoke('scheduler:resume'),
   openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
+  openRepo: () => ipcRenderer.invoke('app:open-repo'),
   openMain: () => ipcRenderer.invoke('app:open-main'),
   quit: () => ipcRenderer.invoke('app:quit'),
   notifyFloatReady: () => ipcRenderer.send('float:ready'),

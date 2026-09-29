@@ -139,6 +139,8 @@ export interface Api {
   pause(minutes: number): Promise<AppState>
   resume(): Promise<AppState>
   openDataDir(): Promise<void>
+  /** 在系统浏览器里打开项目主页；地址写死在主进程，渲染层不传参数 */
+  openRepo(): Promise<void>
   openMain(): Promise<void>
   quit(): Promise<void>
   notifyFloatReady(): void

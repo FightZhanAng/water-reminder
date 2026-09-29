@@ -24,7 +24,7 @@ import { appIconPath, assetsDir, hardenWindow, loadRenderer, preloadPath } from 
 import { Scheduler } from './scheduler'
 import { Store } from './store'
 import { TrayController } from './tray'
-import { checkForUpdate, releasePageUrl } from './updater'
+import { checkForUpdate, releasePageUrl, repoPageUrl } from './updater'
 
 /**
  * Windows 通知身份（AppUserModelID）。
@@ -446,6 +446,10 @@ function registerIpc(): void {
     if (error) console.error('[shell] 打开数据目录失败：', error)
   })
   ipcMain.handle('app:open-main', () => showMainWindow())
+  // 渲染层不传地址：仓库链接写死在 updater 里，比校验一个外部字符串更省心
+  ipcMain.handle('app:open-repo', () => {
+    void shell.openExternal(repoPageUrl())
+  })
   ipcMain.handle('update:check', () => runUpdateCheck())
   ipcMain.handle('holiday:update', () => runHolidayUpdate())
   ipcMain.handle('update:open', (_event, url: unknown) => {

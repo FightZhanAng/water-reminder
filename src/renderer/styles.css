@@ -154,16 +154,26 @@ input {
   margin-bottom: 12px;
 }
 
-.card-head.as-button {
-  width: 100%;
+/*
+ * 卡头分两块：左边是可点的折叠区（撑满剩余宽度，「展开/收起」照样贴右），
+ * 右边是常驻的项目主页入口 —— 折叠区不能直接当容器用，
+ * 按钮里再嵌一个按钮是非法的 HTML。
+ */
+.card-head-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
   border: 0;
   background: none;
-  padding: 0;
   cursor: pointer;
   text-align: left;
 }
 
-.card-head.as-button:hover .eyebrow {
+.card-head-toggle:hover .eyebrow {
   color: var(--text);
 }
 
@@ -520,6 +530,24 @@ input {
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/*
+ * 纯图标按钮：纵向靠 padding 补齐。
+ * 5+14+5+2 正好等于 btn-sm 的高度（5+行高+5+2），卡头里和正文按钮同高。
+ */
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 5px 8px;
+}
+
+.icon-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .btn-ghost:disabled:hover {

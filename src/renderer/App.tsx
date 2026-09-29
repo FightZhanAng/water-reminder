@@ -119,6 +119,7 @@ export default function App(): React.JSX.Element {
           holiday={state.holiday}
           onChange={patch}
           onOpenDataDir={() => void window.api.openDataDir()}
+          onOpenRepo={() => void window.api.openRepo()}
           onPreviewFloat={() => window.api.previewFloat()}
           onUpdateHoliday={() => void window.api.holidayUpdate()}
           onQuit={() => void window.api.quit()}
