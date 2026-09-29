@@ -772,10 +772,23 @@ input {
   border-color: var(--accent);
 }
 
+/*
+ * 单位占固定列宽：输入框固定 82px，单位列不固定的话，「ml / 分钟」宽窄不一，
+ * 「输入框+单位」整组右对齐后输入框右缘就会参差不齐。固定后输入框右缘、
+ * 单位左缘各成一条直线。
+ */
 .field-unit {
+  min-width: 30px;
   font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+/* 时间行的「至」夹在两个输入框中间，不吃单位列的宽度，居中即可 */
+.field-control-wide .field-unit {
+  min-width: 0;
+  flex: 1;
+  text-align: center;
 }
 
 .toggle {
