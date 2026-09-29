@@ -130,7 +130,7 @@ export default function SettingsPanel({
   return (
     <section className="card">
       <button type="button" className="card-head as-button" onClick={() => setOpen(!open)}>
-        <h2>设置</h2>
+        <h2 className="eyebrow">设置</h2>
         <span className="card-sub">{open ? '收起' : '展开'}</span>
       </button>
 

@@ -1,3 +1,5 @@
+import type { ResolvedTheme, ThemePref } from './theme'
+
 export type DrinkSource = 'manual' | 'tray' | 'shortcut' | 'float' | 'notification'
 
 export interface DrinkLog {
@@ -41,6 +43,8 @@ export interface Settings {
   idleThresholdMin: number
   /** 开机自启（仅打包后生效） */
   autoLaunch: boolean
+  /** 外观主题：跟随系统 / 浅色 / 深色 */
+  theme: ThemePref
 }
 
 export interface DayTotal {
@@ -92,6 +96,14 @@ export interface AppState {
   recent: DayTotal[]
   /** 连续达成目标的天数 */
   streak: number
+  /**
+   * 实际生效的主题（偏好 + 系统深浅合起来的结果）。
+   *
+   * 这个必须由主进程算完推下来，不能让渲染层自己去猜：
+   * 系统在深浅之间切换时，Electron 会更新渲染层的 prefers-color-scheme，
+   * 但**不会**给 matchMedia 派发 change 事件 —— 靠监听它，跟随系统就会僵在旧主题上。
+   */
+  resolvedTheme: ResolvedTheme
 }
 
 /** preload 暴露给渲染层的桥接接口 */

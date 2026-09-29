@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   globalShortcut,
   ipcMain,
+  nativeTheme,
   Notification,
   powerMonitor,
   session,
@@ -12,6 +13,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dayKey, isValidHM } from '../shared/date'
+import { isThemePref, type ResolvedTheme } from '../shared/theme'
 import type { AppState, DrinkSource, FloatMetrics, FloatState, Settings } from '../shared/types'
 import { FloatWindow } from './float'
 import { appIconPath, assetsDir, hardenWindow, loadRenderer, preloadPath } from './paths'
@@ -78,6 +80,50 @@ let isQuitting = false
 let lastSignature = ''
 let activeNotification: Notification | null = null
 
+/* ------------------------------------------------------------------ 主题 */
+
+/**
+ * 窗口底色（不是页面底色，页面由 CSS 决定）。
+ * 这个值决定「窗口出现到页面首帧之间」闪什么颜色，
+ * 所以必须和 tokens.css 里的 --bg 对齐 —— 主进程读不到 CSS，只能各写一份。
+ */
+const WINDOW_BG = { light: '#e9eff1', dark: '#06161c' } as const
+
+/** 浮窗不透明模式下整块被卡片铺满，底色对齐 --surface 而不是 --bg */
+const FLOAT_BG = { light: '#fbfdfd', dark: '#0c2530' } as const
+
+/**
+ * 把应用的外观偏好灌给 Electron。
+ *
+ * themeSource 一设，渲染层的 `prefers-color-scheme` 就跟着变，原生控件
+ * （数字框的上下箭头、时间选择、滚动条）也一起进深色，首帧就已经是对的。
+ * 但页面自己的颜色不认它：渲染层用的是推下去的 `resolvedTheme` ——
+ * 系统深浅切换时 Electron 不会给渲染层的 matchMedia 派发 change 事件。
+ */
+function applyThemeSource(): void {
+  const pref = store.settings.theme
+  nativeTheme.themeSource = isThemePref(pref) ? pref : 'system'
+}
+
+function currentWindowBg(): string {
+  return nativeTheme.shouldUseDarkColors ? WINDOW_BG.dark : WINDOW_BG.light
+}
+
+function currentFloatBg(): string {
+  return nativeTheme.shouldUseDarkColors ? FLOAT_BG.dark : FLOAT_BG.light
+}
+
+/** themeSource 里已经是偏好值，shouldUseDarkColors 就是把偏好和系统合起来的结果 */
+function currentTheme(): ResolvedTheme {
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+}
+
+/** 主题变了要同步窗口底色；跟随系统时，系统切换也走这里 */
+function syncWindowTheme(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setBackgroundColor(currentWindowBg())
+  float?.setBackground(currentFloatBg())
+}
+
 /* ------------------------------------------------------------------ 状态 */
 
 function buildState(): AppState {
@@ -94,7 +140,8 @@ function buildState(): AppState {
     nextAt: scheduler.nextAt,
     pausedUntil: scheduler.pausedUntil,
     recent: store.recentDays(7),
-    streak: store.streak()
+    streak: store.streak(),
+    resolvedTheme: currentTheme()
   }
 }
 
@@ -106,7 +153,8 @@ function signatureOf(state: AppState): string {
     nextAt: state.nextAt === null ? null : Math.floor(state.nextAt / 60_000),
     pausedUntil: state.pausedUntil === null ? null : Math.floor(state.pausedUntil / 60_000),
     recent: state.recent,
-    streak: state.streak
+    streak: state.streak,
+    resolvedTheme: state.resolvedTheme
   })
 }
 
@@ -132,7 +180,7 @@ function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     title: '喝水提醒',
     icon: appIconPath(),
-    backgroundColor: '#F2F7FC',
+    backgroundColor: currentWindowBg(),
     webPreferences: {
       preload: preloadPath(),
       sandbox: false
@@ -232,11 +280,14 @@ function applySettings(patch: Partial<Settings>): AppState {
   if (patch.idleThresholdMin !== undefined)
     clean.idleThresholdMin = clampNumber(patch.idleThresholdMin, 1, 120, 8)
   if (patch.autoLaunch !== undefined) clean.autoLaunch = Boolean(patch.autoLaunch)
+  if (patch.theme !== undefined && isThemePref(patch.theme)) clean.theme = patch.theme
 
   const wasFloatEnabled = store.settings.floatEnabled
   const settings = store.patchSettings(clean)
   scheduler.update(settings)
   applyAutoLaunch()
+  applyThemeSource()
+  syncWindowTheme()
 
   // 透明模式是窗口创建参数，改了必须重建
   float.setTransparent(settings.floatTransparent)
@@ -364,13 +415,15 @@ function registerShortcuts(): void {
 
 async function init(): Promise<void> {
   store = new Store()
+  // 必须在建窗口之前：窗口底色和渲染层的 prefers-color-scheme 都依赖它
+  applyThemeSource()
 
   scheduler = new Scheduler(store.settings, {
     onFire: handleFire,
     onTick: () => refresh()
   })
 
-  float = new FloatWindow(preloadPath(), store.settings.floatTransparent)
+  float = new FloatWindow(preloadPath(), store.settings.floatTransparent, currentFloatBg())
 
   tray = new TrayController({
     onQuickLog: (ml) => addDrink(ml, 'tray'),
@@ -415,6 +468,13 @@ async function init(): Promise<void> {
   // 合盖唤醒后立刻重排，别让「睡了一觉」把节奏带偏
   powerMonitor.on('resume', () => scheduler.replan())
   powerMonitor.on('unlock-screen', () => scheduler.replan())
+
+  // 跟随系统时，系统在深浅之间切换（比如日落自动切换）也要跟上：
+  // 窗口底色直接改，渲染层靠这次推送拿到新的 resolvedTheme
+  nativeTheme.on('updated', () => {
+    syncWindowTheme()
+    refresh(true)
+  })
 
   if (SMOKE) runSmokeTest()
 }

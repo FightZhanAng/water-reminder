@@ -10,6 +10,7 @@
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
 import { nextReminderAt } from '../src/shared/schedule'
 import { recentDays, streakDays } from '../src/shared/stats'
+import { isThemePref, THEME_PREFS } from '../src/shared/theme'
 import type { DrinkLog, Settings } from '../src/shared/types'
 
 let checks = 0
@@ -105,6 +106,12 @@ console.log('\n--- 统计聚合 ---')
   check('目标调低后连续天数变长', streakDays(logs, 1500, now), 2)
   check('目标为 0 时返回 0', streakDays(logs, 0, now), 0)
 }
+
+console.log('\n--- 主题偏好 ---')
+check('默认跟随系统', DEFAULT_SETTINGS.theme, 'system')
+check('非法偏好值被拒', isThemePref('midnight'), false)
+check('合法偏好值被接受', isThemePref('dark'), true)
+check('白名单覆盖全部偏好', THEME_PREFS.every(isThemePref), true)
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${checks - failures}/${checks} 项通过`)
 if (failures > 0) process.exitCode = 1

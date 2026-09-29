@@ -16,7 +16,9 @@ export const DEFAULT_SETTINGS: Settings = {
   cupSize: 250,
   quietWhenIdle: true,
   idleThresholdMin: 8,
-  autoLaunch: false
+  autoLaunch: false,
+  // 默认跟随系统：白天浅水、晚上深水，不用手动切
+  theme: 'system'
 }
 
 export const QUICK_AMOUNTS = [150, 250, 500]

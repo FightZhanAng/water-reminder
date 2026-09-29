@@ -14,13 +14,13 @@ interface TodayListProps {
   onUndo: () => void
 }
 
-export default function TodayList({ logs, onUndo }: TodayListProps) {
+export default function TodayList({ logs, onUndo }: TodayListProps): React.JSX.Element {
   const newestFirst = [...logs].reverse()
 
   return (
     <section className="card">
       <div className="card-head">
-        <h2>今天的记录</h2>
+        <h2 className="eyebrow">今天的记录</h2>
         {logs.length > 0 && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={onUndo}>
             撤销上一次

@@ -1,17 +1,6 @@
-:root {
-  --bg: #f2f7fc;
-  --surface: #ffffff;
-  --line: #e3edf6;
-  --line-strong: #cfe0ef;
-  --text: #16324a;
-  --muted: #6b8299;
-  --accent: #1e88e5;
-  --accent-dark: #0f6fd1;
-  --accent-soft: #e4f0fc;
-  --good: #2fa84f;
-  --danger: #d94a4a;
-  --radius: 14px;
-}
+@import './tokens.css';
+
+/* ------------------------------------------------------------------ 基础 */
 
 * {
   box-sizing: border-box;
@@ -25,11 +14,12 @@ body,
 
 body {
   margin: 0;
-  font-family: 'Microsoft YaHei UI', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 button,
@@ -37,6 +27,25 @@ input {
   font-family: inherit;
   font-size: inherit;
   color: inherit;
+}
+
+/* 键盘焦点必须看得见。用 :where() 把权重压到 0，方便各处按需覆盖 */
+:where(button, input, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 主题切换时让底色平滑过渡，别硬闪 */
+.card,
+.topbar,
+.btn,
+.quick-btn,
+.segment,
+.field-control input,
+.quick-custom input,
+.log-source,
+.chart-bar {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 /* ------------------------------------------------------------ 布局骨架 */
@@ -51,8 +60,8 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 16px 18px 14px;
+  gap: 10px;
+  padding: 12px 14px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
@@ -60,41 +69,49 @@ input {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   min-width: 0;
 }
 
-.brand-dot {
-  width: 12px;
-  height: 12px;
+.brand-mark {
+  display: flex;
   flex: 0 0 auto;
-  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-  background: var(--accent);
 }
 
-.brand-dot.is-done {
-  background: var(--good);
+.brand-mark svg {
+  width: 15px;
+  height: 19px;
+  display: block;
+  fill: var(--accent);
+}
+
+.brand-mark.is-done svg {
+  fill: var(--good);
 }
 
 .topbar h1 {
   margin: 0;
+  font-family: var(--font-instrument);
   font-size: 15px;
   font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.brand-sub {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--muted);
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .content {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .loading {
@@ -105,13 +122,27 @@ input {
   color: var(--muted);
 }
 
+/* 静态兜底文案：脚本没跑起来时也得看得清，且要跟着主题走 */
+.boot {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+  padding: 16px;
+}
+
+.boot-hint {
+  color: var(--muted);
+}
+
 /* ---------------------------------------------------------------- 卡片 */
 
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
+  box-shadow: var(--shadow), var(--inset);
+  padding: 14px;
 }
 
 .card-head {
@@ -120,12 +151,6 @@ input {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
-}
-
-.card-head h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
 }
 
 .card-head.as-button {
@@ -137,138 +162,252 @@ input {
   text-align: left;
 }
 
-.card-sub {
-  font-size: 12px;
+.card-head.as-button:hover .eyebrow {
+  color: var(--text);
+}
+
+/*
+ * 分区标签：小一号的仪表字 + 一道刻度竖线。
+ * 刻度线是这个界面反复出现的结构件 —— 面板上的分区、量筒上的分度，
+ * 用的是同一种记号，读起来才知道它们是同一套语言。
+ */
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-family: var(--font-instrument);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
   color: var(--muted);
+  transition: color 0.2s ease;
+}
+
+.eyebrow::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.card-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .hint {
-  margin: 10px 0 0;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 11px 0 0;
+  font-size: 11.5px;
   color: var(--muted);
+}
+
+.kbd {
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .empty {
   margin: 0;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--muted);
 }
 
-/* ------------------------------------------------------------ 进度环 */
+/* -------------------------------------------------------------- 水位计 */
 
-.hero {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 18px 16px 14px;
+.hero-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
 }
 
-.ring {
-  position: relative;
-  width: 220px;
-  height: 220px;
-  margin: 0 auto;
-}
-
-.ring-svg {
-  width: 100%;
-  height: 100%;
+.gauge {
   display: block;
+  flex: 0 0 auto;
 }
 
-.ring-track {
+.gauge-glass {
+  fill: var(--surface-2);
+}
+
+.gauge-wall {
   fill: none;
-  stroke: var(--accent-soft);
-  stroke-width: 14;
+  stroke: var(--line-strong);
+  stroke-width: 2;
 }
 
-.ring-water {
-  fill: #dcebfb;
+.gauge-tick {
+  stroke: var(--line-strong);
+  stroke-width: 1;
 }
 
-.ring-water.is-done {
-  fill: #dcf0e3;
+.gauge-tick.is-long {
+  stroke: var(--muted);
 }
 
-.ring-arc {
-  fill: none;
+.gauge-scale {
+  fill: var(--muted);
+  font-family: var(--font-instrument);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.gauge-stop-top {
+  stop-color: var(--water-top);
+}
+
+.gauge-stop-bottom {
+  stop-color: var(--water-bottom);
+}
+
+.gauge-stop-glare {
+  stop-color: var(--glass-glare);
+}
+
+.gauge-water {
+  fill: url(#gauge-water);
+}
+
+/* 水位变化时整筒水一起补间，液面和指针不会一个动一个跳 */
+.gauge-move {
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gauge-water.is-done {
+  fill: var(--good);
+}
+
+/* 液面：一条缓慢漂移的波。周期与 WAVE_PERIOD 对齐，位移一格正好无缝循环 */
+.gauge-wave {
+  fill: color-mix(in srgb, var(--water-top) 68%, white);
+  animation: tide 7s linear infinite;
+}
+
+.gauge-wave.is-done {
+  fill: color-mix(in srgb, var(--good) 72%, white);
+}
+
+.gauge-glare {
+  fill: url(#gauge-glare);
+}
+
+.gauge-marker {
   stroke: var(--accent);
-  stroke-width: 14;
+  stroke-width: 2;
   stroke-linecap: round;
-  transition: stroke-dasharray 0.6s ease;
 }
 
-.ring-center {
-  position: absolute;
-  inset: 0;
+@keyframes tide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-58px);
+  }
+}
+
+.readout {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
 }
 
-.ring-total {
-  font-size: 38px;
+.readout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.readout-percent {
+  font-family: var(--font-instrument);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.readout-value {
+  margin: 7px 0 0;
+  font-family: var(--font-instrument);
+  font-size: 44px;
   font-weight: 600;
   line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
-.ring-goal {
+.readout-unit {
+  margin-left: 5px;
+  font-family: var(--font-body);
   font-size: 13px;
+  font-weight: 500;
   color: var(--muted);
 }
 
-.ring-percent {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--accent);
-}
-
-.hero-facts {
-  display: flex;
-  margin-top: 14px;
-  padding-top: 14px;
+.readout-list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  row-gap: 6px;
+  column-gap: 10px;
+  margin: 13px 0 0;
+  padding-top: 11px;
   border-top: 1px solid var(--line);
+  font-size: 12.5px;
 }
 
-.fact {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-}
-
-.fact-value {
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.fact-label {
-  font-size: 11px;
+.readout-list dt {
   color: var(--muted);
+}
+
+.readout-list dd {
+  margin: 0;
+  font-family: var(--font-instrument);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.readout-list dd.is-close {
+  color: var(--good);
 }
 
 /* ------------------------------------------------------------ 快捷记录 */
 
 .quick-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .quick-btn {
+  position: relative;
   flex: 1;
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: 2px;
-  padding: 13px 6px;
+  padding: 12px 6px;
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--surface);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.08s;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.08s;
 }
 
 .quick-btn:hover {
@@ -285,25 +424,42 @@ input {
   background: var(--accent-soft);
 }
 
+/* 高亮的那一杯就是快捷键记的那一杯，标出来省得猜 */
+.quick-btn.is-default::after {
+  content: '快捷键';
+  position: absolute;
+  top: -7px;
+  right: 7px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+}
+
 .quick-plus {
-  font-size: 15px;
+  font-size: 14px;
   color: var(--accent);
 }
 
 .quick-num {
-  font-size: 17px;
+  font-family: var(--font-instrument);
+  font-size: 19px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .quick-unit {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
 }
 
 .quick-custom {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 11px;
 }
 
 .quick-custom input {
@@ -311,8 +467,8 @@ input {
   min-width: 0;
   padding: 9px 12px;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  background: var(--surface);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
   outline: none;
 }
 
@@ -323,20 +479,22 @@ input {
 /* ---------------------------------------------------------------- 按钮 */
 
 .btn {
-  padding: 9px 16px;
+  padding: 8px 15px;
   border: 1px solid var(--accent);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .btn:hover {
-  background: var(--accent-dark);
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 .btn-ghost {
-  background: var(--surface);
+  background: transparent;
   border-color: var(--line-strong);
   color: var(--text);
 }
@@ -354,18 +512,92 @@ input {
 
 .btn-ghost.is-danger:hover {
   border-color: var(--danger);
-  background: #fdeeee;
+  background: var(--danger-soft);
   color: var(--danger);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-ghost:disabled:hover {
+  background: transparent;
+  border-color: var(--line-strong);
+}
+
+/* ------------------------------------------------------------ 主题切换 */
+
+.segment {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.segment button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.segment button:hover {
+  color: var(--text);
+}
+
+.segment button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.segment svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.seg-stroke {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.seg-fill {
+  fill: currentColor;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* -------------------------------------------------------------- 记录列表 */
 
+/*
+ * 不设内部滚动：页面本身已经是一个滚动列，再嵌一层滚动区就会出现
+ * 「滚不动了，得先挪到内层」的滚动陷阱。今天的记录就该一次看完。
+ */
 .log-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 190px;
-  overflow-y: auto;
 }
 
 .log-list li {
@@ -373,8 +605,8 @@ input {
   align-items: center;
   gap: 10px;
   padding: 7px 0;
-  border-bottom: 1px dashed var(--line);
-  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
 }
 
 .log-list li:last-child {
@@ -382,58 +614,60 @@ input {
 }
 
 .log-time {
+  font-family: var(--font-data);
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 .log-ml {
   flex: 1;
+  font-family: var(--font-instrument);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .log-source {
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--bg);
-  border-radius: 999px;
   padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  color: var(--muted);
 }
 
 /* ---------------------------------------------------------------- 图表 */
 
 .chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  height: 132px;
+  --plot-h: 112px;
+}
+
+.chart-cols {
+  position: relative;
+  height: var(--plot-h);
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  align-items: end;
 }
 
 .chart-col {
-  flex: 1;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
+  justify-content: center;
   height: 100%;
 }
 
-.chart-value {
-  font-size: 10px;
-  color: var(--muted);
-  height: 14px;
-  font-variant-numeric: tabular-nums;
-}
-
-.chart-bar-wrap {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
+.chart-slot {
+  position: relative;
+  width: 58%;
+  min-height: 3px;
 }
 
 .chart-bar {
   width: 100%;
+  height: 100%;
   min-height: 3px;
-  border-radius: 6px 6px 3px 3px;
+  border-radius: 3px 3px 2px 2px;
   background: var(--accent-soft);
 }
 
@@ -441,23 +675,62 @@ input {
   background: var(--accent);
 }
 
-.chart-label {
-  margin-top: 6px;
+/* 目标线：横跨整个绘图区，一眼看出哪几天越过去了 */
+.chart-goal {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  border-top: 1px dashed var(--accent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.chart-axis {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chart-axis-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.chart-value {
+  font-family: var(--font-instrument);
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-day {
   font-size: 11px;
   color: var(--muted);
+}
+
+.chart-axis-cell.is-today .chart-value,
+.chart-axis-cell.is-today .chart-day {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------- 设置 */
 
 .settings h3 {
-  margin: 18px 0 6px;
-  font-size: 12px;
+  margin: 16px 0 4px;
+  font-family: var(--font-instrument);
+  font-size: 11.5px;
   font-weight: 600;
+  letter-spacing: 0.08em;
   color: var(--accent);
 }
 
 .settings h3:first-child {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .field {
@@ -465,11 +738,11 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 7px 0;
+  padding: 6px 0;
 }
 
 .field-label {
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .field-control {
@@ -479,18 +752,19 @@ input {
 }
 
 .field-control input {
-  width: 84px;
+  width: 82px;
   padding: 6px 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--surface);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
   text-align: right;
   outline: none;
 }
 
 .field-control input[type='time'] {
-  width: 96px;
+  width: 94px;
   text-align: center;
+  font-family: var(--font-instrument);
 }
 
 .field-control input:focus {
@@ -498,7 +772,7 @@ input {
 }
 
 .field-unit {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -507,17 +781,46 @@ input {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 8px 0;
+  padding: 7px 0;
   cursor: pointer;
 }
 
+/*
+ * 复选框自己画：原生那个在深色模式下是暖灰底，和整套冷色系对不上，
+ * 而 accent-color 只管选中态，管不到未选中的那个框。
+ */
 .toggle input {
+  appearance: none;
+  position: relative;
   margin: 2px 0 0;
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   flex: 0 0 auto;
-  accent-color: var(--accent);
+  border: 1.5px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface-2);
   cursor: pointer;
+}
+
+.toggle input:hover {
+  border-color: var(--accent);
+}
+
+.toggle input:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.toggle input:checked::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 8px;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: translate(-50%, -60%) rotate(45deg);
 }
 
 .toggle-text {
@@ -527,7 +830,7 @@ input {
 }
 
 .toggle-label {
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .toggle-hint {
@@ -555,29 +858,19 @@ input {
   min-width: 0;
 }
 
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.btn-ghost:disabled:hover {
-  background: var(--surface);
-  border-color: var(--line-strong);
-}
-
 .preview-status {
   margin: 6px 0 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   line-height: 1.6;
   color: var(--good);
-  background: #f1f9f3;
-  border-radius: 8px;
-  padding: 6px 10px;
+  background: var(--good-soft);
 }
 
 .preview-status.is-error {
   color: var(--danger);
-  background: #fdeeee;
+  background: var(--danger-soft);
 }
 
 /* -------------------------------------------------------------- 滚动条 */
@@ -587,10 +880,22 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cfdded;
+  background: var(--line-strong);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ------------------------------------------------------------ 减弱动效 */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

@@ -1,20 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { QUICK_AMOUNTS } from '@shared/defaults'
 import type { AppState } from '@shared/types'
+import { DROP_BOTTOM, DROP_PATH, DROP_SPAN } from './DropMark'
+import { useTheme } from '../useTheme'
 
-// 水滴轮廓。
-// 圆弧那一段的 sweep-flag 必须是 0：sweep=1 会从左侧点「往上」绕到右侧点，
-// 画出来是个尖顶拱门；sweep=0 才会「往下」绕出圆底，才是水滴。
-const DROP_PATH = 'M32 4 C32 4 8 30 8 48 a24 24 0 0 0 48 0 C56 30 32 4 32 4 Z'
-const DROP_TOP = 4
-const DROP_BOTTOM = 72
-const DROP_SPAN = DROP_BOTTOM - DROP_TOP
-
-export default function FloatCard() {
+export default function FloatCard(): React.JSX.Element {
   const [state, setState] = useState<AppState | null>(null)
   const [fireCount, setFireCount] = useState(0)
   const [fatal, setFatal] = useState<string | null>(null)
   const reported = useRef(false)
+  useTheme(state?.resolvedTheme)
 
   useEffect(() => {
     // 整段包起来：这里是「窗口一片空白」最容易发生的地方 ——

@@ -34,7 +34,9 @@ export class FloatWindow {
 
   constructor(
     private readonly preload: string,
-    private transparent = false
+    private transparent = false,
+    /** 不透明模式下窗口的底色（对齐 tokens.css 的 --surface），随主题变化 */
+    private bg = '#fbfdfd'
   ) {}
 
   get browserWindow(): BrowserWindow | null {
@@ -67,7 +69,7 @@ export class FloatWindow {
       frame: false,
       transparent,
       // 不透明模式下让窗口底色跟页面底色一致，四角不会露出突兀的白块
-      backgroundColor: transparent ? '#00000000' : '#f2f7fc',
+      backgroundColor: transparent ? '#00000000' : this.bg,
       resizable: false,
       movable: true,
       minimizable: false,
@@ -221,6 +223,19 @@ export class FloatWindow {
   /** 把渲染层量到的 DOM 数据写进日志，用于区分「没渲染」和「没合成上」 */
   logMetrics(metrics: unknown): void {
     this.log(`renderer metrics: ${JSON.stringify(metrics)}`)
+  }
+
+  /**
+   * 主题切换时同步窗口底色。
+   * 透明模式下窗口底色无意义（整块透明），所以只记下来，等切回不透明时再用。
+   */
+  setBackground(color: string): void {
+    if (this.bg === color) return
+    this.bg = color
+    if (this.win && !this.win.isDestroyed() && !this.transparent) {
+      this.win.setBackgroundColor(color)
+      this.log(`窗口底色切换为 ${color}`)
+    }
   }
 
   /**

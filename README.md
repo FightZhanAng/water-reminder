@@ -8,6 +8,11 @@ Windows 桌面常驻的喝水提醒工具。三种提醒形态并存，互不抢
 
 技术栈：Electron 43 + electron-vite 5 + React 19 + TypeScript。
 
+界面按「一台量水仪器」来做：主面板左侧是一支真的量筒，刻度按目标值换算成毫升、
+液面随进度上涨，右侧是读数表；反复出现的「刻度竖线」是分区记号，和量筒上的分度
+是同一套语言。深浅两套主题就是**水深** —— 浅水（矿物纸底 + 印刷水色）与
+深水（深渊底色 + 荧光青）。
+
 ## 快速开始
 
 ```bash
@@ -25,12 +30,17 @@ pnpm dist             # 打 Windows 安装包 + 便携版，输出到 release/
 （`CRYPT_E_NO_REVOCATION_CHECK`）直接失败，走 `npmmirror.com` 才通得过。
 镜像地址可以用环境变量覆盖，换网络环境不用改代码。
 
+`pnpm dev` / `pnpm preview` 也套了一层 `scripts/electron-run.mjs`，它只做一件事：
+启动前把 `ELECTRON_RUN_AS_NODE` 从环境里摘掉。留着那个变量，electron 会退化成普通
+Node，启动即崩，而且报错看不出原因 —— 详见「环境注意事项」。
+
 打包产物落在 `release/`：
 
 | 文件 | 说明 |
 | --- | --- |
-| `water-reminder-0.2.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
-| `water-reminder-0.2.0-x64.nsis.7z` | 安装包的载荷数据 |
+| `water-reminder-0.3.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-0.3.0-portable.exe` | 免安装单文件版，双击直接跑 |
+| `water-reminder-0.3.0-x64.nsis.7z` | 安装包的载荷数据 |
 | `win-unpacked/` | 免安装的解包版本，双击里面的 `water-reminder.exe` 直接跑 |
 
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
@@ -42,8 +52,8 @@ pnpm dist             # 打 Windows 安装包 + 便携版，输出到 release/
 并把两个安装包挂到 Release 上：
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，
@@ -82,6 +92,30 @@ git push origin v0.2.0
 设置面板里的「打开数据目录」进去有 `float.log`，记录了每一次创建、加载、呈现、
 失败，以及渲染层自己量到的 `renderer metrics`（卡片宽高、背景色、水滴是否渲染）。
 有这组数据就能区分「DOM 根本没渲染」和「DOM 正常但窗口没合成上」。
+
+## 深浅主题
+
+外观三档：**跟随系统 / 浅色 / 深色**，切换在主面板右上角的三个图标，默认跟随系统
+（白天浅水、晚上自动深水）。选择存在设置里，重启后还在；老的数据文件没有这个字段，
+读取时会自动补上默认值。
+
+实现上有两条硬约束，都是实测才知道的：
+
+1. **主题不能由渲染层自己算。** 系统在深浅之间切换时，Electron 会更新渲染层的
+   `prefers-color-scheme`，但**不会**给 `matchMedia` 派发 `change` 事件 ——
+   谁去监听它，「跟随系统」就会僵在旧主题上（实测：`matches` 已经是 true，
+   `change` 一次都没来）。所以主进程把偏好灌进 `nativeTheme.themeSource`，
+   再把算好的 `AppState.resolvedTheme` 推给渲染层，渲染层只负责写
+   `<html data-theme>`，不自己判断。
+2. **首帧不能闪。** React 挂载前那一帧没有任何 JS 参与，所以 `tokens.css` 里
+   深色 token 写了两份：一份在 `@media (prefers-color-scheme: dark)` 里带
+   `:not([data-theme])`，只管首帧兜底；一份是 `:root[data-theme='dark']`，是权威的。
+   两份必须逐字一致，改一份就要改另一份。
+
+窗口底色（`BrowserWindow` 的 `backgroundColor`）也在主进程里跟着主题走，
+否则窗口出现到页面首帧之间会闪一下旧底色。这几个色值在主进程里是硬编码的
+（`WINDOW_BG` / `FLOAT_BG`）—— 主进程读不到 CSS，只能和 `tokens.css` 里的
+`--bg`、`--surface` 各写一份、手动对齐。
 
 ## 通知点击为什么打开了 Electron 欢迎页
 
@@ -152,11 +186,12 @@ src/
   shared/            主进程与渲染层共用，且不依赖 Electron
     types.ts         AppState / Settings / DrinkLog 等
     defaults.ts      默认设置、快捷杯量、数据保留天数
+    theme.ts         主题偏好类型与校验
     date.ts          本地时区的日期工具
     schedule.ts      ★ 提醒时间点计算（最核心的一段）
     stats.ts         按天聚合、近 7 天、连续达标天数
   main/
-    index.ts         生命周期、单实例锁、IPC、通知、全局快捷键
+    index.ts         生命周期、单实例锁、IPC、通知、全局快捷键、主题与窗口底色
     store.ts         JSON 持久化（原子写）
     scheduler.ts     调度器外壳：巡检 + 静默判断
     tray.ts          托盘图标与右键菜单
@@ -166,11 +201,15 @@ src/
   renderer/
     index.html       主面板
     float.html       小水滴浮窗
+    tokens.css       设计令牌（浅/深两套），主面板与浮窗共用
+    useTheme.ts      把主进程推来的主题写到 <html data-theme>
     App.tsx / components/ / styles.css
     float.tsx / float.css
 scripts/
   gen-icons.mjs      纯 Node 生成应用图标与 11 帧托盘水位水滴
   core-test.ts       核心逻辑测试
+  electron-run.mjs   开发/预览启动器：摘掉 ELECTRON_RUN_AS_NODE 再交给 electron-vite
+  dist.mjs           打包启动器：注入国内镜像
 resources/           图标资源（打包时复制到 resources/assets）
 ```
 
@@ -209,6 +248,11 @@ Node 对它的具名导出探测不生效，会直接报 `does not provide an ex
 **闲时静默是「跳过」而不是「顺延累计」。**
 系统空闲超过阈值就跳过这次提醒，5 分钟后再看，不补也不堆。
 离开电脑一小时后回来收到 8 条提醒，是最快让用户卸载应用的方式。
+
+**主题由主进程定，渲染层只负责显示。**
+`AppState.resolvedTheme` 是唯一权威值，CSS 里那份媒体查询只做首帧兜底 —— 原因见「深浅主题」。
+同理，`AppState` 里带 `resolvedTheme` 之后，主题切换会走和记录、设置完全一样的那条推送链路，
+不需要新开一条 IPC 通道。
 
 ## 已知限制
 
@@ -275,8 +319,18 @@ printf 'electron.exe' > path.txt        # 注意不要带换行
 数据写到临时目录不污染正式数据。两个前置条件，缺一个都会「静默什么都没发生」：
 
 1. 不能在 `ELECTRON_RUN_AS_NODE=1` 的环境里跑 —— 那种环境下 electron 会退化成普通
-   Node，`require('electron')` 拿到的是 npm 包路径而不是内置模块，启动即崩。
-   这个变量在某些环境里是全局设好的，记得先 `unset`。
+   Node，`require('electron')` 拿到的是 npm 包那个「路径转发壳」字符串，于是启动即崩，
+   报在模块顶部算 `APP_ID` 的那一行：
+
+   ```
+   TypeError: Cannot read properties of undefined (reading 'isPackaged')
+       at out/main/index.js:790
+   ```
+
+   这个报错完全看不出真正的原因，而且 `pnpm build` 一切正常，只有真跑起来才炸。
+   **`pnpm dev` / `pnpm preview` 已经会自动把它摘掉**（走 `scripts/electron-run.mjs`，
+   理由和「镜像注入」一样：这类环境坑不该指望人记得）。只有像下面这样直接调
+   `electron.exe` 时才需要自己 `unset`。
 2. 要显式给一个独立的 `--user-data-dir`。单实例锁是在 `app.setPath('userData', ...)`
    **之前**、用默认 userData 抢的，所以哪怕自检会把数据挪到临时目录，锁仍然和同机
    其他 Electron 进程打架；锁没抢到就 `app.quit()`，表现是「没有报告、退出码 0」。
@@ -300,5 +354,6 @@ WATER_SMOKE_TEST=1 ./node_modules/electron/dist/electron.exe . \
 | 默认杯量 | 250 ml |
 | 空闲静默阈值 | 8 分钟 |
 | 小水滴自动隐藏 | 20 秒 |
+| 外观主题 | 跟随系统 |
 | 全局快捷键 | `Ctrl + Alt + W` 记一杯 |
 | 数据保留 | 400 天，超出自动裁剪 |

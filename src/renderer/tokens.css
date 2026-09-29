@@ -1,0 +1,106 @@
+/*
+ * 设计令牌 —— 主面板与小水滴共用一份。
+ *
+ * 方向：整个面板是一台「量水仪器」，主题就是水深。
+ *   浅水（浅色）：矿物纸底 + 印刷水色，白天看是纸上的刻度
+ *   深水（深色）：深渊底色 + 荧光青，晚上看是水里的读数
+ *
+ * 深浅两套只有一套机制：`prefers-color-scheme`。
+ * 主进程把设置灌进 nativeTheme.themeSource，渲染层就自动跟着变 ——
+ * 不需要给每个元素发一次主题状态，也不会出现「JS 还没跑起来时是白底」的闪帧。
+ *
+ * `:root[data-theme]` 是渲染层显式写上的、权威的那一份；
+ * 媒体查询里那份带 `:not([data-theme])`，只负责首帧兜底（React 挂载之前）。
+ * 两份必须逐字一致，改一份就要改另一份。
+ */
+
+:root {
+  /* ---- 浅水 ---- */
+  --bg: #e9eff1;
+  --surface: #fbfdfd;
+  --surface-2: #f1f6f7;
+  --line: #d7e1e4;
+  --line-strong: #b9c9ce;
+  --text: #0f2730;
+  --muted: #546c75;
+  --accent: #0a7186;
+  --accent-strong: #055668;
+  --accent-soft: #dceef2;
+  --on-accent: #ffffff;
+  --water-top: #56c4dc;
+  --water-bottom: #0c7891;
+  --good: #1d8f63;
+  --good-soft: #e2f2ea;
+  --danger: #b8483a;
+  --danger-soft: #fbece9;
+  --glass-glare: rgba(255, 255, 255, 0.62);
+  --shadow: 0 1px 2px rgba(15, 39, 48, 0.05), 0 10px 26px -18px rgba(15, 39, 48, 0.35);
+  --float-shadow: 0 10px 28px -14px rgba(15, 39, 48, 0.45);
+  --inset: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+
+  /* ---- 尺寸与字体 ---- */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font-body: 'Microsoft YaHei UI', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Bahnschrift 是 Windows 自带的 DIN 系字体：刻度、读数、标题都走它，读起来像仪表 */
+  --font-instrument: Bahnschrift, 'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  --font-data: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  color-scheme: light;
+}
+
+/* 首帧兜底：React 还没写 data-theme 时，跟着系统走 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #06161c;
+    --surface: #0c2530;
+    --surface-2: #113039;
+    --line: #20454f;
+    --line-strong: #2f5b68;
+    --text: #e2f0f1;
+    --muted: #86a5ab;
+    --accent: #4fd4e2;
+    --accent-strong: #86e8f2;
+    --accent-soft: #16414f;
+    --on-accent: #04212a;
+    --water-top: #7ceaf5;
+    --water-bottom: #0d6277;
+    --good: #46cf90;
+    --good-soft: #0e2e26;
+    --danger: #ff8f7a;
+    --danger-soft: #3a1e19;
+    --glass-glare: rgba(180, 240, 255, 0.14);
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 30px -20px rgba(0, 0, 0, 0.9);
+    --float-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.75);
+    --inset: inset 0 1px 0 rgba(150, 230, 245, 0.07);
+
+    color-scheme: dark;
+  }
+}
+
+/* 渲染层显式指定时以它为准（必须与上面那份逐字一致） */
+:root[data-theme='dark'] {
+  --bg: #06161c;
+  --surface: #0c2530;
+  --surface-2: #113039;
+  --line: #20454f;
+  --line-strong: #2f5b68;
+  --text: #e2f0f1;
+  --muted: #86a5ab;
+  --accent: #4fd4e2;
+  --accent-strong: #86e8f2;
+  --accent-soft: #16414f;
+  --on-accent: #04212a;
+  --water-top: #7ceaf5;
+  --water-bottom: #0d6277;
+  --good: #46cf90;
+  --good-soft: #0e2e26;
+  --danger: #ff8f7a;
+  --danger-soft: #3a1e19;
+  --glass-glare: rgba(180, 240, 255, 0.14);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 30px -20px rgba(0, 0, 0, 0.9);
+  --float-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.75);
+  --inset: inset 0 1px 0 rgba(150, 230, 245, 0.07);
+
+  color-scheme: dark;
+}
