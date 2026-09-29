@@ -145,6 +145,18 @@ git remote get-url origin                # 复核，必须还是 SSH
 - **tag 用带注释的**：`git tag -a vX.Y.Z -m "喝水提醒 X.Y.Z"`。
   `v0.1.0` / `v0.2.0` 都是 annotated（`git cat-file -t` 返回 `tag`），
   `v0.3.0` 当时误用了轻量 tag（返回 `commit`），别再犯。
+- **发现 tag 类型打错了，安全的改法是原子替换，不要「删远端再推」**（那中间有一段时间
+  远端没有这个 tag）：
+
+  ```powershell
+  git tag -d vX.Y.Z                                   # 删本地的
+  git tag -a vX.Y.Z <版本提交的 SHA> -m "喝水提醒 X.Y.Z"   # 显式指向版本提交，别用 HEAD
+  git push --force origin vX.Y.Z                      # 原子替换
+  ```
+
+  代价是会再触发一次构建（约 2.5 分钟）；**实测无害**：Release 不会被删，
+  第二次 run 会 `--clobber` 重新上传两个产物，结束后 `state=uploaded` 正常。
+  改之前先确认上一次 run 已经结束 —— 在跑的 run 按 tag 名 checkout，动 tag 会让它失败。
 
 ---
 
