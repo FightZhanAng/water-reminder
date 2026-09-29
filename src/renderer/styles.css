@@ -568,6 +568,14 @@ input {
   display: block;
 }
 
+/* 文字版分段（主题切换是图标版）：宽度跟着字走，压小字号 */
+.segment-text button {
+  width: auto;
+  padding: 0 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
 .seg-stroke {
   fill: none;
   stroke: currentColor;
@@ -885,6 +893,48 @@ input {
 .preview-status.is-error {
   color: var(--danger);
   background: var(--danger-soft);
+}
+
+/* ------------------------------------------------- 节假日数据状态行 */
+
+/*
+ * 「工作日判定 → 按节假日调休」下面的一行：左边数据状态，右边更新按钮。
+ * 缺数据是必须被看见的状态 —— 判定正在按星期回退，用户不知道就会以为功能坏了。
+ */
+.holiday-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 4px;
+}
+
+.holiday-text {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.holiday-text.is-ok {
+  color: var(--good);
+  background: var(--good-soft);
+}
+
+.holiday-text.is-warn {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.holiday-text.is-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.holiday-row .btn {
+  flex-shrink: 0;
 }
 
 /* -------------------------------------------------------------- 状态栏 */

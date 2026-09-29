@@ -6,6 +6,8 @@ export const DEFAULT_SETTINGS: Settings = {
   activeStart: '09:00',
   activeEnd: '21:00',
   weekdaysOnly: true,
+  // 判定「工作日」默认按星期：节假日判定需要先更新当年数据，首次使用不引入额外步骤
+  weekdayMode: 'plain',
   notifyEnabled: true,
   soundEnabled: false,
   floatEnabled: true,

@@ -38,9 +38,9 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 
 | 文件 | 说明 |
 | --- | --- |
-| `water-reminder-0.4.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
-| `water-reminder-0.4.0-portable.exe` | 免安装单文件版，双击直接跑 |
-| `water-reminder-0.4.0-x64.nsis.7z` | 安装包的载荷数据 |
+| `water-reminder-0.5.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-0.5.0-portable.exe` | 免安装单文件版，双击直接跑 |
+| `water-reminder-0.5.0-x64.nsis.7z` | 安装包的载荷数据 |
 | `win-unpacked/` | 免安装的解包版本，双击里面的 `water-reminder.exe` 直接跑 |
 
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
@@ -52,8 +52,8 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 并把两个安装包挂到 Release 上：
 
 ```bash
-git tag -a v0.4.0 -m "喝水提醒 0.4.0"
-git push origin v0.4.0
+git tag -a v0.5.0 -m "喝水提醒 0.5.0"
+git push origin v0.5.0
 ```
 
 工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，
@@ -144,6 +144,27 @@ $env:WATER_UPDATE_API = "http://127.0.0.1:8899/update"
 Node / Chromium 到 GitHub 的 HTTPS 都被证书吊销检查挡住了（见「环境注意事项」），
 只有 git 和 `gh` 能通。换个网络环境或修好证书链就正常，不是代码问题。
 
+## 只在工作日提醒：节假日与调休
+
+「只在工作日提醒」打开后可以选「工作日」怎么判，两种方式：
+
+- **按星期**（默认）：周一到周五提醒，周末一律不提醒，不看任何日历 —— 历史行为
+- **按节假日调休**：法定节假日不提醒，调休补班日（周末上班）照常提醒
+
+判定用的年度数据来自 timor.tech 的免费接口（免鉴权，一年一查的量级），是**自动
+拉取**的：切到「按节假日调休」、或带着它启动时，本地没有当年数据就自动拉一次并
+落到 `userData/holidays.json`（保留最近 3 个年份）。设置面板里明确显示今年数据的
+状态：已就绪（休/补班天数、更新时间）或「还没有今年的调休数据」——后者给出
+「更新到本地」按钮手动重拉。
+
+- **缺数据不沉默**：数据缺失（没更新、跨年、拉取失败）时判定回退到按星期，
+  宁可节假日多提醒一句，也不能一声不吭 —— 沉默才是提醒工具最伤信誉的故障
+- 打卡后的下一次提醒同样受判定约束：节假日喝了杯水，不会 45 分钟后照常弹通知
+- 解析器对返回做严格校验（键格式、年份交叉核对、空数据视为不可用），任何一处
+  不对就用回退规则，不拿残缺数据当真理
+- 拉取在主进程 `net.fetch`，走 Chromium 网络栈；`WATER_HOLIDAY_API` 可以把地址
+  指到本地 mock（`{year}` 占位符）验证整条链路
+
 ## 通知点击为什么打开了 Electron 欢迎页
 
 踩过一次，记下来。
@@ -214,6 +235,7 @@ src/
     types.ts         AppState / Settings / DrinkLog 等
     defaults.ts      默认设置、快捷杯量、数据保留天数
     theme.ts         主题偏好类型与校验
+    holiday.ts       节假日/调休数据解析与工作日判定（含缺数据回退规则）
     update.ts        版本号解析/比较、下载地址白名单（更新检查的纯逻辑）
     date.ts          本地时区的日期工具
     schedule.ts      ★ 提醒时间点计算（最核心的一段）
@@ -225,6 +247,7 @@ src/
     tray.ts          托盘图标与右键菜单
     float.ts         桌面小水滴浮窗
     updater.ts       更新检查（主进程发请求，超时与错误文案都在这儿）
+    holidays.ts      节假日/调休数据（主进程拉取 + 本地缓存 + 状态推送）
     paths.ts         资源与产物路径、窗口加固
   preload/index.ts   contextBridge 桥接
   renderer/
@@ -379,7 +402,7 @@ WATER_SMOKE_TEST=1 ./node_modules/electron/dist/electron.exe . \
 | 每日目标 | 2000 ml |
 | 提醒间隔 | 45 分钟 |
 | 活跃时段 | 09:00 – 21:00 |
-| 只工作日 | 开 |
+| 只工作日 | 开（判定方式默认按星期，可切按节假日调休） |
 | 默认杯量 | 250 ml |
 | 空闲静默阈值 | 8 分钟 |
 | 小水滴自动隐藏 | 20 秒 |

@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
+import { formatStamp } from '@shared/date'
+import type { HolidayStatus } from '@shared/holiday'
 import type { FloatState, Settings } from '@shared/types'
 
 interface SettingsPanelProps {
   settings: Settings
+  holiday: HolidayStatus
   onChange: (patch: Partial<Settings>) => void
   onOpenDataDir: () => void
   onPreviewFloat: () => Promise<FloatState>
+  onUpdateHoliday: () => void
   onQuit: () => void
 }
 
@@ -81,11 +85,39 @@ function Toggle({ label, hint, checked, onChange }: ToggleProps) {
   )
 }
 
+/**
+ * 节假日数据状态行的文案与配色。
+ * 「没有今年数据」必须是显眼的提示而不是藏在角落 —— 数据缺着的时候
+ * 判定在按星期回退，用户得知道这回事，不然补班日的提醒丢了都查不到原因。
+ */
+function holidayStatusView(h: HolidayStatus): { text: string; tone: 'ok' | 'warn' | 'error' | 'muted'; button: string } {
+  switch (h.state) {
+    case 'loaded':
+      return {
+        text: `${h.year} 年调休数据已就绪：休 ${h.restDays} 天 / 补班 ${h.workdays} 天（更新于 ${formatStamp(h.updatedAt)}）`,
+        tone: 'ok',
+        button: '更新'
+      }
+    case 'missing':
+      return {
+        text: `还没有 ${h.year} 年的调休数据，点「更新到本地」拉取；缺数据的日子会按星期判断`,
+        tone: 'warn',
+        button: '更新到本地'
+      }
+    case 'loading':
+      return { text: `正在拉取 ${h.year} 年调休数据…`, tone: 'muted', button: '更新中…' }
+    case 'error':
+      return { text: `更新失败：${h.reason}`, tone: 'error', button: '重试' }
+  }
+}
+
 export default function SettingsPanel({
   settings,
+  holiday,
   onChange,
   onOpenDataDir,
   onPreviewFloat,
+  onUpdateHoliday,
   onQuit
 }: SettingsPanelProps) {
   const [open, setOpen] = useState(false)
@@ -182,10 +214,40 @@ export default function SettingsPanel({
           </div>
           <Toggle
             label="只在工作日提醒"
-            hint="周六周日完全安静"
+            hint="开启后可选判定方式：按星期，或按法定节假日（含调休）"
             checked={settings.weekdaysOnly}
             onChange={(weekdaysOnly) => onChange({ weekdaysOnly })}
           />
+          {settings.weekdaysOnly && (
+            <>
+              <div className="field">
+                <span className="field-label">工作日判定</span>
+                <span className="field-control">
+                  <span className="segment segment-text" role="group" aria-label="工作日判定方式">
+                    <button
+                      type="button"
+                      title="按星期一至星期五判断，不看节假日"
+                      aria-pressed={settings.weekdayMode === 'plain'}
+                      onClick={() => onChange({ weekdayMode: 'plain' })}
+                    >
+                      按星期
+                    </button>
+                    <button
+                      type="button"
+                      title="法定节假日不提醒，调休补班日提醒"
+                      aria-pressed={settings.weekdayMode === 'holiday'}
+                      onClick={() => onChange({ weekdayMode: 'holiday' })}
+                    >
+                      按节假日调休
+                    </button>
+                  </span>
+                </span>
+              </div>
+              {settings.weekdayMode === 'holiday' && (
+                <HolidayRow holiday={holiday} onUpdate={onUpdateHoliday} />
+              )}
+            </>
+          )}
 
           <h3>提醒方式</h3>
           <Toggle
@@ -275,5 +337,28 @@ export default function SettingsPanel({
         </div>
       )}
     </section>
+  )
+}
+
+function HolidayRow({
+  holiday,
+  onUpdate
+}: {
+  holiday: HolidayStatus
+  onUpdate: () => void
+}): React.JSX.Element {
+  const { text, tone, button } = holidayStatusView(holiday)
+  return (
+    <div className="holiday-row">
+      <span className={`holiday-text is-${tone}`}>{text}</span>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        disabled={holiday.state === 'loading'}
+        onClick={onUpdate}
+      >
+        {button}
+      </button>
+    </div>
   )
 }

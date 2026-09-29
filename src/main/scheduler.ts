@@ -1,5 +1,6 @@
 import { powerMonitor } from 'electron'
 import { intervalMsOf, nextReminderAt, type ActiveWindow, activeWindowAt } from '../shared/schedule'
+import type { HolidayCalendar } from '../shared/holiday'
 import type { Settings } from '../shared/types'
 
 /** 状态巡检周期。10 秒足够，且远比 1 秒省电 */
@@ -13,6 +14,9 @@ export interface SchedulerHooks {
   onFire(): void
   onTick(): void
 }
+
+/** 给调度器供日历；数据什么时候更新由外面（节假日模块）管，这里只读 */
+export type CalendarProvider = () => HolidayCalendar | null
 
 /**
  * 提醒调度器（Electron 外壳）。
@@ -29,7 +33,8 @@ export class Scheduler {
 
   constructor(
     settings: Settings,
-    private readonly hooks: SchedulerHooks
+    private readonly hooks: SchedulerHooks,
+    private readonly calendar: CalendarProvider = () => null
   ) {
     this.settings = settings
   }
@@ -48,11 +53,11 @@ export class Scheduler {
 
   /** 当前是否处于活跃时段内 */
   get inActiveWindow(): ActiveWindow | null {
-    return activeWindowAt(this.settings, Date.now())
+    return activeWindowAt(this.settings, Date.now(), this.calendar())
   }
 
   start(): void {
-    this.cursor = nextReminderAt(this.settings, Date.now())
+    this.cursor = nextReminderAt(this.settings, Date.now(), this.calendar())
     if (this.timer) clearInterval(this.timer)
     this.timer = setInterval(() => this.tick(), TICK_MS)
   }
@@ -79,14 +84,18 @@ export class Scheduler {
 
   replan(from = Date.now()): void {
     if (this.pausedUntilValue) return
-    this.cursor = nextReminderAt(this.settings, from)
+    this.cursor = nextReminderAt(this.settings, from, this.calendar())
     this.hooks.onTick()
   }
 
   /** 打卡后调用：从现在起重新计时，而不是继续等原来那个点 */
   resetAfterDrink(): void {
     if (this.pausedUntilValue) return
-    this.cursor = Date.now() + this.intervalMs
+    const naive = Date.now() + this.intervalMs
+    // 朴素间隔「现在 + 间隔」只在它是合法提醒点时成立（当天提醒 + 在窗口内）。
+    // 节假日/周末喝了杯水不该 45 分钟后照常弹通知 —— 那和「仅工作日提醒」矛盾。
+    const window = activeWindowAt(this.settings, naive, this.calendar())
+    this.cursor = window && naive <= window.end ? naive : nextReminderAt(this.settings, naive, this.calendar())
     this.hooks.onTick()
   }
 
@@ -104,7 +113,7 @@ export class Scheduler {
 
     // 离开太久 / 睡了一夜：不补提醒，直接重排
     if (now - this.cursor > this.intervalMs * STALE_FACTOR) {
-      this.cursor = nextReminderAt(this.settings, now)
+      this.cursor = nextReminderAt(this.settings, now, this.calendar())
       this.hooks.onTick()
       return
     }
@@ -115,7 +124,7 @@ export class Scheduler {
       return
     }
 
-    this.cursor = nextReminderAt(this.settings, now)
+    this.cursor = nextReminderAt(this.settings, now, this.calendar())
     this.hooks.onFire()
     this.hooks.onTick()
   }

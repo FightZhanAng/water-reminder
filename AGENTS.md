@@ -215,8 +215,9 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
 - **改设置项**要动三处：`src/shared/types.ts` 的类型、`src/shared/defaults.ts`
   的默认值、`src/main/index.ts` 里 `applySettings` 的白名单校验
   （老数据文件靠 `store.load()` 合并默认值来兼容，不用写迁移）。
-- **改核心逻辑**（`src/shared/schedule.ts`、`stats.ts`、`theme.ts`、`update.ts`）就补
-  `scripts/core-test.ts` 的用例 —— 这些模块不依赖 Electron，能脱离窗口直接跑。
+- **改核心逻辑**（`src/shared/schedule.ts`、`stats.ts`、`theme.ts`、`update.ts`、
+  `holiday.ts`）就补 `scripts/core-test.ts` 的用例 —— 这些模块不依赖 Electron，
+  能脱离窗口直接跑。
 
 ---
 
@@ -259,6 +260,22 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
   版本号不可解析 / 500 / 超时）都能覆盖。
 - **只提示，不自动下载**：这是刻意选的形态。便携版本来也无法自更新，
   静默重启又会打断常驻托盘的工具。
+
+### 6.4 节假日/调休判定
+
+- **缺数据必须回退到按星期，不能沉默**：没更新当年数据、跨年、拉取失败时，
+  判定回退按星期（`isActiveDate`，见 `src/shared/schedule.ts`）。节假日多提醒一句
+  是小事，「该提醒的日子一声不吭」才是事故。
+- **解析器从严**：`parseHolidayPayload` 对返回做键格式、年份交叉核对、空数据校验，
+  任何一处不对返回 null 当失败处理，不把残缺数据当日历用。
+- **数据 I/O 在主进程**（`src/main/holidays.ts`，`net.fetch` + 落盘
+  `userData/holidays.json`），纯逻辑（解析/判定/回退）在 `src/shared/holiday.ts`，
+  跟着 `pnpm test:core` 跑。
+- **验证口子**：`WATER_HOLIDAY_API` 指到本地 mock（`{year}` 占位符）。
+  与 GitHub 不同，本机到数据源 timor.tech 的 HTTPS 是通的，真实链路也能直接测。
+- **打卡后的下一次提醒同样受判定约束**（`scheduler.resetAfterDrink`）：
+  朴素「现在 + 间隔」只在当天是提醒日且落在窗口内时成立，否则跳到下一个
+  合法提醒点 —— 不然节假日喝了杯水，45 分钟后照常弹通知，开关等于虚设。
 
 ---
 

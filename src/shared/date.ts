@@ -36,6 +36,12 @@ export function formatClock(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 'M-DD HH:mm'，用于「数据更新于 …」这类时间戳 */
+export function formatStamp(ts: number): string {
+  const d = new Date(ts)
+  return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')} ${formatClock(ts)}`
+}
+
 export function formatWeekday(dateKeyValue: string): string {
   const [y, m, d] = dateKeyValue.split('-').map((v) => Number.parseInt(v, 10))
   return ['日', '一', '二', '三', '四', '五', '六'][new Date(y, m - 1, d).getDay()]

@@ -11,6 +11,7 @@ const api: Api = {
   previewFloat: () => ipcRenderer.invoke('float:preview'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   openRelease: (url: string) => ipcRenderer.invoke('update:open', url),
+  holidayUpdate: () => ipcRenderer.invoke('holiday:update'),
   reportFloatMetrics: (metrics) => ipcRenderer.send('float:metrics', metrics),
   pause: (minutes: number) => ipcRenderer.invoke('scheduler:pause', minutes),
   resume: () => ipcRenderer.invoke('scheduler:resume'),

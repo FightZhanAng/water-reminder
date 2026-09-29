@@ -1,4 +1,5 @@
 import { nextDayStart, parseHM } from './date'
+import { resolveWorkday, type HolidayCalendar } from './holiday'
 import type { Settings } from './types'
 
 export interface ActiveWindow {
@@ -11,13 +12,30 @@ export function intervalMsOf(settings: Settings): number {
   return Math.max(5, settings.intervalMin) * 60_000
 }
 
-/** 某时刻所处的活跃窗口；不在活跃日返回 null */
-export function activeWindowAt(settings: Settings, ts: number): ActiveWindow | null {
-  const d = new Date(ts)
-  if (settings.weekdaysOnly) {
-    const weekday = d.getDay()
-    if (weekday === 0 || weekday === 6) return null
+/**
+ * 这天该不该提醒（不含时段，只判「这天」）。
+ *
+ * 日历缺失时（没更新到当年数据、或日历不是这一年的）按星期回退：
+ * 宁可节假日多提醒一句，也不能一声不吭 —— 沉默才是最伤「提醒工具」信誉的故障。
+ */
+export function isActiveDate(settings: Settings, ts: number, calendar: HolidayCalendar | null): boolean {
+  if (!settings.weekdaysOnly) return true
+  if (settings.weekdayMode === 'holiday') {
+    const verdict = resolveWorkday(ts, calendar)
+    if (verdict !== 'unknown') return verdict === 'workday'
   }
+  const weekday = new Date(ts).getDay()
+  return weekday !== 0 && weekday !== 6
+}
+
+/** 某时刻所处的活跃窗口；不在活跃日返回 null */
+export function activeWindowAt(
+  settings: Settings,
+  ts: number,
+  calendar: HolidayCalendar | null = null
+): ActiveWindow | null {
+  if (!isActiveDate(settings, ts, calendar)) return null
+  const d = new Date(ts)
   const from = parseHM(settings.activeStart)
   const to = parseHM(settings.activeEnd)
   const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
@@ -34,12 +52,16 @@ export function activeWindowAt(settings: Settings, ts: number): ActiveWindow | n
  * 提醒点永远取「当天窗口起点 + 间隔的整数倍」，而不是「上次提醒 + 间隔」。
  * 只有前者能在系统休眠、定时器被节流、时钟被调整之后依然不漂移。
  */
-export function nextReminderAt(settings: Settings, from: number): number {
+export function nextReminderAt(
+  settings: Settings,
+  from: number,
+  calendar: HolidayCalendar | null = null
+): number {
   const step = intervalMsOf(settings)
   let probe = from
 
   for (let guard = 0; guard < 400; guard++) {
-    const window = activeWindowAt(settings, probe)
+    const window = activeWindowAt(settings, probe, calendar)
     if (window && probe < window.end) {
       let next =
         probe <= window.start

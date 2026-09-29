@@ -13,10 +13,12 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dayKey, isValidHM } from '../shared/date'
+import { isWeekdayMode, type HolidayStatus } from '../shared/holiday'
 import { isThemePref, type ResolvedTheme } from '../shared/theme'
 import { isTrustedReleaseUrl, type UpdateCheck } from '../shared/update'
 import type { AppState, DrinkSource, FloatMetrics, FloatState, Settings } from '../shared/types'
 import { FloatWindow } from './float'
+import { HolidayStore } from './holidays'
 import { appIconPath, assetsDir, hardenWindow, loadRenderer, preloadPath } from './paths'
 
 import { Scheduler } from './scheduler'
@@ -76,6 +78,7 @@ let store: Store
 let scheduler: Scheduler
 let tray: TrayController
 let float: FloatWindow
+let holidayStore: HolidayStore
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -140,6 +143,25 @@ async function runUpdateCheck(): Promise<UpdateCheck> {
   return updateState
 }
 
+/* ------------------------------------------------------- 节假日/调休数据 */
+
+/**
+ * 把节假日数据更新一遍：数据落本地后必须重排提醒
+ * （比如补上的调休补班日就在本周六，nextAt 立刻就变了）。
+ */
+async function runHolidayUpdate(): Promise<HolidayStatus> {
+  const status = await holidayStore.fetchYear()
+  if (status.state === 'loaded') scheduler.replan()
+  refresh(true)
+  return status
+}
+
+/** 「按节假日判定」开着、但今年还没数据：这种状态才会去拉 */
+function needsHolidayFetch(): boolean {
+  const { weekdaysOnly, weekdayMode } = store.settings
+  return weekdaysOnly && weekdayMode === 'holiday' && holidayStore.getStatus().state === 'missing'
+}
+
 /* ------------------------------------------------------------------ 状态 */
 
 function buildState(): AppState {
@@ -159,7 +181,8 @@ function buildState(): AppState {
     streak: store.streak(),
     resolvedTheme: currentTheme(),
     version: app.getVersion(),
-    update: updateState
+    update: updateState,
+    holiday: holidayStore.getStatus()
   }
 }
 
@@ -174,7 +197,8 @@ function signatureOf(state: AppState): string {
     streak: state.streak,
     resolvedTheme: state.resolvedTheme,
     version: state.version,
-    update: state.update
+    update: state.update,
+    holiday: state.holiday
   })
 }
 
@@ -288,6 +312,8 @@ function applySettings(patch: Partial<Settings>): AppState {
   if (patch.activeStart !== undefined && isValidHM(patch.activeStart)) clean.activeStart = patch.activeStart
   if (patch.activeEnd !== undefined && isValidHM(patch.activeEnd)) clean.activeEnd = patch.activeEnd
   if (patch.weekdaysOnly !== undefined) clean.weekdaysOnly = Boolean(patch.weekdaysOnly)
+  if (patch.weekdayMode !== undefined && isWeekdayMode(patch.weekdayMode))
+    clean.weekdayMode = patch.weekdayMode
   if (patch.notifyEnabled !== undefined) clean.notifyEnabled = Boolean(patch.notifyEnabled)
   if (patch.soundEnabled !== undefined) clean.soundEnabled = Boolean(patch.soundEnabled)
   if (patch.floatEnabled !== undefined) clean.floatEnabled = Boolean(patch.floatEnabled)
@@ -306,6 +332,10 @@ function applySettings(patch: Partial<Settings>): AppState {
 
   const wasFloatEnabled = store.settings.floatEnabled
   const wasAutoCheck = store.settings.autoCheckUpdate
+  // 「按节假日判定」是不是已经在生效（开着开关 + 选了这个模式）——
+  // 用于判断这次改动是不是把它从无到有打开，是的话要立刻补一次数据
+  const wasHolidayActive =
+    store.settings.weekdaysOnly && store.settings.weekdayMode === 'holiday'
   const settings = store.patchSettings(clean)
   scheduler.update(settings)
   applyAutoLaunch()
@@ -315,6 +345,17 @@ function applySettings(patch: Partial<Settings>): AppState {
   // 刚把开关打开就先查一次，不然「明明开了却一直没动静」
   if (settings.autoCheckUpdate && !wasAutoCheck) {
     setTimeout(() => void runUpdateCheck(), 300)
+  }
+
+  // 刚切到按节假日判定（或带着这个模式打开仅工作日）就先拉一次今年数据。
+  // 拉不到也不挡路：判定会回退到按星期，界面上的提示会告诉用户去点更新
+  if (
+    settings.weekdaysOnly &&
+    settings.weekdayMode === 'holiday' &&
+    !wasHolidayActive &&
+    holidayStore.getStatus().state === 'missing'
+  ) {
+    setTimeout(() => void runHolidayUpdate(), 300)
   }
 
   // 透明模式是窗口创建参数，改了必须重建
@@ -406,6 +447,7 @@ function registerIpc(): void {
   })
   ipcMain.handle('app:open-main', () => showMainWindow())
   ipcMain.handle('update:check', () => runUpdateCheck())
+  ipcMain.handle('holiday:update', () => runHolidayUpdate())
   ipcMain.handle('update:open', (_event, url: unknown) => {
     // 链接来自远端 JSON，开之前必须校验域名：别把任意 URL 交给系统浏览器
     if (isTrustedReleaseUrl(url)) {
@@ -455,10 +497,13 @@ async function init(): Promise<void> {
   // 必须在建窗口之前：窗口底色和渲染层的 prefers-color-scheme 都依赖它
   applyThemeSource()
 
+  // 必须在 scheduler 之前：调度器构造时要拿到日历提供者
+  holidayStore = new HolidayStore(join(app.getPath('userData'), 'holidays.json'), app.getVersion())
+
   scheduler = new Scheduler(store.settings, {
     onFire: handleFire,
     onTick: () => refresh()
-  })
+  }, () => holidayStore.getCalendar())
 
   float = new FloatWindow(preloadPath(), store.settings.floatTransparent, currentFloatBg())
 
@@ -516,6 +561,12 @@ async function init(): Promise<void> {
   // 启动后自动查一次更新。冒烟自检不查：它会自动退出，查了也是白查
   if (store.settings.autoCheckUpdate && !SMOKE) {
     setTimeout(() => void runUpdateCheck(), UPDATE_CHECK_DELAY_MS)
+  }
+
+  // 按节假日判定开着但今年还没数据：启动后补拉一次，
+  // 拉不到也不重试轰炸，界面上的提示会引导用户手动点「更新到本地」
+  if (needsHolidayFetch() && !SMOKE) {
+    setTimeout(() => void runHolidayUpdate(), UPDATE_CHECK_DELAY_MS)
   }
 
   if (SMOKE) runSmokeTest()

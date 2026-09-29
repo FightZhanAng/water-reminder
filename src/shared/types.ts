@@ -1,4 +1,5 @@
 import type { ResolvedTheme, ThemePref } from './theme'
+import type { HolidayStatus, WeekdayMode } from './holiday'
 import type { UpdateCheck } from './update'
 
 export type DrinkSource = 'manual' | 'tray' | 'shortcut' | 'float' | 'notification'
@@ -21,6 +22,8 @@ export interface Settings {
   activeEnd: string
   /** 仅工作日提醒 */
   weekdaysOnly: boolean
+  /** 「工作日」的判定方式：按星期 / 按法定节假日与调休 */
+  weekdayMode: WeekdayMode
   /** 系统通知 */
   notifyEnabled: boolean
   /** 通知是否出声 */
@@ -111,6 +114,8 @@ export interface AppState {
   version: string
   /** 最近一次更新检查的结果；从没查过就是 null */
   update: UpdateCheck | null
+  /** 节假日/调休数据的本地状态（今年有没有、什么时候更新的） */
+  holiday: HolidayStatus
 }
 
 /** preload 暴露给渲染层的桥接接口 */
@@ -127,6 +132,8 @@ export interface Api {
   checkUpdate(): Promise<UpdateCheck>
   /** 打开新版本的下载页（主进程会校验域名，非 github.com 一律忽略） */
   openRelease(url: string): Promise<void>
+  /** 拉取今年的节假日/调休数据并保存到本地；结果同时会通过 state 推下来 */
+  holidayUpdate(): Promise<HolidayStatus>
   /** 小水滴页面把自己量到的渲染数据回报给主进程，写进 float.log */
   reportFloatMetrics(metrics: FloatMetrics): void
   pause(minutes: number): Promise<AppState>

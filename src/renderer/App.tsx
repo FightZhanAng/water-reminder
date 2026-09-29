@@ -116,9 +116,11 @@ export default function App(): React.JSX.Element {
 
         <SettingsPanel
           settings={settings}
+          holiday={state.holiday}
           onChange={patch}
           onOpenDataDir={() => void window.api.openDataDir()}
           onPreviewFloat={() => window.api.previewFloat()}
+          onUpdateHoliday={() => void window.api.holidayUpdate()}
           onQuit={() => void window.api.quit()}
         />
       </main>
