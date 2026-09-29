@@ -72,6 +72,12 @@ $env:WATER_SMOKE_TEST = "1"
 `--user-data-dir` 是必须的：单实例锁在 `app.setPath('userData')` 之前就抢了，
 不隔离会和同机其他 Electron 进程打架，表现是「没有报告、退出码 0」。
 
+另一个坑：**Git Bash 里直接调 GUI 版 `electron.exe` 会瞬间静默退出**（退出码 0、
+无任何输出、连模块顶部的写入探针都不执行，`--version` 也不回显；node 模式
+`ELECTRON_RUN_AS_NODE=1` 反而正常）。要跑 GUI 探针改用 PowerShell，并注意它
+用 `&` 调 GUI 程序不等结束、`$LASTEXITCODE` 会是空的 —— 要么
+`Start-Process -PassThru -Wait` 拿退出码，要么直接轮询报告文件确认结果。
+
 ### 2.2 到 GitHub 的网络
 
 - **SSH 通道当前不可靠。** `ssh.github.com:443` 的 TCP 能连上
@@ -209,12 +215,12 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
 - **改设置项**要动三处：`src/shared/types.ts` 的类型、`src/shared/defaults.ts`
   的默认值、`src/main/index.ts` 里 `applySettings` 的白名单校验
   （老数据文件靠 `store.load()` 合并默认值来兼容，不用写迁移）。
-- **改核心逻辑**（`src/shared/schedule.ts`、`stats.ts`、`theme.ts`）就补
+- **改核心逻辑**（`src/shared/schedule.ts`、`stats.ts`、`theme.ts`、`update.ts`）就补
   `scripts/core-test.ts` 的用例 —— 这些模块不依赖 Electron，能脱离窗口直接跑。
 
 ---
 
-## 6. 两条容易被改坏的硬约束
+## 6. 几条容易被改坏的硬约束
 
 ### 6.1 主题不能在渲染层自己算
 
@@ -238,6 +244,21 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
 
 同理，改量筒几何时注意：刻度换算和水位换算必须共用同一个 `SPAN`
 （`BOTTOM - INNER_TOP`），否则液面和刻度对不上。
+
+### 6.3 更新检查
+
+- **I/O 必须在主进程**：打包后渲染层的 CSP 是 `default-src 'self'`，`connect-src`
+  跟着回落，渲染层直接 `fetch` 外网会被挡掉。用 `net.fetch`（走 Chromium 网络栈，
+  能吃系统代理），别用全局 fetch。
+- **纯逻辑放 `src/shared/update.ts`**（版本解析/比较、地址白名单），跟着
+  `pnpm test:core` 一起测。版本比较写错了不会报错，只会「永远说已是最新」。
+- **远端给的 URL 不能直接交给 `shell.openExternal`**：只认 `https://github.com/`
+  开头，不合法就退回仓库 releases 页。
+- **本机测不了真实链路**（够不到 GitHub）。验证用 `WATER_UPDATE_API` 把地址指到
+  本地 mock 服务，七种情形（有新版本 / 已是最新 / 非 github 域名 / 缺 html_url /
+  版本号不可解析 / 500 / 超时）都能覆盖。
+- **只提示，不自动下载**：这是刻意选的形态。便携版本来也无法自更新，
+  静默重启又会打断常驻托盘的工具。
 
 ---
 

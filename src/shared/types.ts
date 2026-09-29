@@ -1,4 +1,5 @@
 import type { ResolvedTheme, ThemePref } from './theme'
+import type { UpdateCheck } from './update'
 
 export type DrinkSource = 'manual' | 'tray' | 'shortcut' | 'float' | 'notification'
 
@@ -45,6 +46,8 @@ export interface Settings {
   autoLaunch: boolean
   /** 外观主题：跟随系统 / 浅色 / 深色 */
   theme: ThemePref
+  /** 启动后自动查一次更新（只提示，不自动下载） */
+  autoCheckUpdate: boolean
 }
 
 export interface DayTotal {
@@ -104,6 +107,10 @@ export interface AppState {
    * 但**不会**给 matchMedia 派发 change 事件 —— 靠监听它，跟随系统就会僵在旧主题上。
    */
   resolvedTheme: ResolvedTheme
+  /** 应用版本，来自主进程的 app.getVersion() */
+  version: string
+  /** 最近一次更新检查的结果；从没查过就是 null */
+  update: UpdateCheck | null
 }
 
 /** preload 暴露给渲染层的桥接接口 */
@@ -116,6 +123,10 @@ export interface Api {
   extendFloat(): Promise<void>
   /** 手动预览一次小水滴，不用等提醒触发；返回窗口实际状态便于排查 */
   previewFloat(): Promise<FloatState>
+  /** 手动查一次更新；结果同时会通过 state 推下来 */
+  checkUpdate(): Promise<UpdateCheck>
+  /** 打开新版本的下载页（主进程会校验域名，非 github.com 一律忽略） */
+  openRelease(url: string): Promise<void>
   /** 小水滴页面把自己量到的渲染数据回报给主进程，写进 float.log */
   reportFloatMetrics(metrics: FloatMetrics): void
   pause(minutes: number): Promise<AppState>

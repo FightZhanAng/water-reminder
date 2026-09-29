@@ -38,9 +38,9 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 
 | 文件 | 说明 |
 | --- | --- |
-| `water-reminder-0.3.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
-| `water-reminder-0.3.0-portable.exe` | 免安装单文件版，双击直接跑 |
-| `water-reminder-0.3.0-x64.nsis.7z` | 安装包的载荷数据 |
+| `water-reminder-0.4.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-0.4.0-portable.exe` | 免安装单文件版，双击直接跑 |
+| `water-reminder-0.4.0-x64.nsis.7z` | 安装包的载荷数据 |
 | `win-unpacked/` | 免安装的解包版本，双击里面的 `water-reminder.exe` 直接跑 |
 
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
@@ -52,8 +52,8 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 并把两个安装包挂到 Release 上：
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag -a v0.4.0 -m "喝水提醒 0.4.0"
+git push origin v0.4.0
 ```
 
 工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，
@@ -116,6 +116,33 @@ git push origin v0.3.0
 否则窗口出现到页面首帧之间会闪一下旧底色。这几个色值在主进程里是硬编码的
 （`WINDOW_BG` / `FLOAT_BG`）—— 主进程读不到 CSS，只能和 `tokens.css` 里的
 `--bg`、`--surface` 各写一份、手动对齐。
+
+## 版本号与更新检查
+
+窗口底部常驻一条状态栏：左边版本号，右边更新状态。启动 8 秒后自动查一次
+（设置 →「其他」→ 自动检查更新，可关），也可以随时点「检查更新」。
+
+- **只提示，不自动下载**：发现新版本时给出「去下载」，打开 GitHub 的 Release 页，
+  由你自己选装安装版还是便携版
+- 走 GitHub 的 `releases/latest`：公开仓库免鉴权，匿名限流 60 次/小时/IP，
+  一天一次远远够用
+- 请求在主进程发，用 `net.fetch` —— 打包后渲染层的 CSP 是 `default-src 'self'`，
+  `connect-src` 跟着回落，渲染层直接 fetch 外网会被挡掉。用 `net.fetch` 而不是
+  全局 fetch，是为了走 Chromium 的网络栈，系统代理和企业证书设置能跟着走
+- 下载链接来自远端 JSON，**开之前校验域名**（只认 `https://github.com/`），
+  不合法就退回仓库的 releases 页 —— 不能把任意 URL 交给系统浏览器
+- 版本比较、地址白名单这些纯逻辑在 `src/shared/update.ts`，跟着 `pnpm test:core` 一起测
+
+验证用的口子：`WATER_UPDATE_API` 可以把检查地址指到别处（本机够不到 GitHub，
+只有指向本地 mock 服务才测得了这条链路）。
+
+```powershell
+$env:WATER_UPDATE_API = "http://127.0.0.1:8899/update"
+```
+
+**在这台开发机上会显示「检查失败：连不上 GitHub，检查网络或代理」** —— 这台机器的
+Node / Chromium 到 GitHub 的 HTTPS 都被证书吊销检查挡住了（见「环境注意事项」），
+只有 git 和 `gh` 能通。换个网络环境或修好证书链就正常，不是代码问题。
 
 ## 通知点击为什么打开了 Electron 欢迎页
 
@@ -187,6 +214,7 @@ src/
     types.ts         AppState / Settings / DrinkLog 等
     defaults.ts      默认设置、快捷杯量、数据保留天数
     theme.ts         主题偏好类型与校验
+    update.ts        版本号解析/比较、下载地址白名单（更新检查的纯逻辑）
     date.ts          本地时区的日期工具
     schedule.ts      ★ 提醒时间点计算（最核心的一段）
     stats.ts         按天聚合、近 7 天、连续达标天数
@@ -196,6 +224,7 @@ src/
     scheduler.ts     调度器外壳：巡检 + 静默判断
     tray.ts          托盘图标与右键菜单
     float.ts         桌面小水滴浮窗
+    updater.ts       更新检查（主进程发请求，超时与错误文案都在这儿）
     paths.ts         资源与产物路径、窗口加固
   preload/index.ts   contextBridge 桥接
   renderer/
@@ -355,5 +384,6 @@ WATER_SMOKE_TEST=1 ./node_modules/electron/dist/electron.exe . \
 | 空闲静默阈值 | 8 分钟 |
 | 小水滴自动隐藏 | 20 秒 |
 | 外观主题 | 跟随系统 |
+| 自动检查更新 | 开（启动 8 秒后查一次，只提示不下载） |
 | 全局快捷键 | `Ctrl + Alt + W` 记一杯 |
 | 数据保留 | 400 天，超出自动裁剪 |

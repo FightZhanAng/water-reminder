@@ -258,6 +258,12 @@ export default function SettingsPanel({
             checked={settings.autoLaunch}
             onChange={(autoLaunch) => onChange({ autoLaunch })}
           />
+          <Toggle
+            label="自动检查更新"
+            hint="启动后查一次；有新版本只在窗口底部提示，不自动下载"
+            checked={settings.autoCheckUpdate}
+            onChange={(autoCheckUpdate) => onChange({ autoCheckUpdate })}
+          />
           <div className="action-row">
             <button type="button" className="btn btn-ghost btn-sm" onClick={onOpenDataDir}>
               打开数据目录

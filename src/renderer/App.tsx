@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatClock } from '@shared/date'
 import DropMark from './components/DropMark'
 import QuickLog from './components/QuickLog'
 import SettingsPanel from './components/SettingsPanel'
+import StatusBar from './components/StatusBar'
 import ThemeSwitch from './components/ThemeSwitch'
 import TodayList from './components/TodayList'
 import WaterGauge from './components/WaterGauge'
@@ -13,12 +14,23 @@ import { useTheme } from './useTheme'
 export default function App(): React.JSX.Element {
   const { state, addDrink, undo, patch, pause, resume } = useAppState()
   const [now, setNow] = useState(() => Date.now())
+  const [checking, setChecking] = useState(false)
   useTheme(state?.resolvedTheme)
 
   // 本地跑倒计时，不用每秒钟去烦主进程
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
+  }, [])
+
+  const checkUpdate = useCallback(async () => {
+    setChecking(true)
+    try {
+      // 结果由主进程推回来（AppState.update），这里只负责转圈
+      await window.api.checkUpdate()
+    } finally {
+      setChecking(false)
+    }
   }, [])
 
   const countdown = useMemo(() => {
@@ -110,6 +122,14 @@ export default function App(): React.JSX.Element {
           onQuit={() => void window.api.quit()}
         />
       </main>
+
+      <StatusBar
+        version={state.version}
+        update={state.update}
+        checking={checking}
+        onCheck={() => void checkUpdate()}
+        onOpen={(url) => void window.api.openRelease(url)}
+      />
     </div>
   )
 }

@@ -38,6 +38,7 @@ input {
 /* 主题切换时让底色平滑过渡，别硬闪 */
 .card,
 .topbar,
+.statusbar,
 .btn,
 .quick-btn,
 .segment,
@@ -871,6 +872,55 @@ input {
 .preview-status.is-error {
   color: var(--danger);
   background: var(--danger-soft);
+}
+
+/* -------------------------------------------------------------- 状态栏 */
+
+/*
+ * 窗口底部：左边版本号，右边更新状态。
+ * 这是这台「仪器」的铭牌位置 —— 字号压到最小、颜色压到最灰，
+ * 只有「有新版本」才允许用强调色。
+ */
+.statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+}
+
+.statusbar-version {
+  font-family: var(--font-instrument);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.statusbar-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.statusbar-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.statusbar-text.is-update {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.statusbar-text.is-error {
+  color: var(--danger);
 }
 
 /* -------------------------------------------------------------- 滚动条 */

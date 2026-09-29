@@ -18,7 +18,9 @@ export const DEFAULT_SETTINGS: Settings = {
   idleThresholdMin: 8,
   autoLaunch: false,
   // 默认跟随系统：白天浅水、晚上深水，不用手动切
-  theme: 'system'
+  theme: 'system',
+  // 启动后查一次更新，有新版本只在底部状态栏提示，不自动下载
+  autoCheckUpdate: true
 }
 
 export const QUICK_AMOUNTS = [150, 250, 500]

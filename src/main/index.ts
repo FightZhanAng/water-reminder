@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dayKey, isValidHM } from '../shared/date'
 import { isThemePref, type ResolvedTheme } from '../shared/theme'
+import { isTrustedReleaseUrl, type UpdateCheck } from '../shared/update'
 import type { AppState, DrinkSource, FloatMetrics, FloatState, Settings } from '../shared/types'
 import { FloatWindow } from './float'
 import { appIconPath, assetsDir, hardenWindow, loadRenderer, preloadPath } from './paths'
@@ -21,6 +22,7 @@ import { appIconPath, assetsDir, hardenWindow, loadRenderer, preloadPath } from 
 import { Scheduler } from './scheduler'
 import { Store } from './store'
 import { TrayController } from './tray'
+import { checkForUpdate, releasePageUrl } from './updater'
 
 /**
  * Windows 通知身份（AppUserModelID）。
@@ -124,6 +126,20 @@ function syncWindowTheme(): void {
   float?.setBackground(currentFloatBg())
 }
 
+/* --------------------------------------------------------------- 更新检查 */
+
+/** 最近一次检查结果。从没查过就是 null，渲染层据此显示「检查更新」 */
+let updateState: UpdateCheck | null = null
+
+/** 启动后隔一会儿再查：别和启动那一堆事抢资源，也别让首屏先闪一下「正在检查」 */
+const UPDATE_CHECK_DELAY_MS = 8000
+
+async function runUpdateCheck(): Promise<UpdateCheck> {
+  updateState = await checkForUpdate(app.getVersion())
+  refresh(true)
+  return updateState
+}
+
 /* ------------------------------------------------------------------ 状态 */
 
 function buildState(): AppState {
@@ -141,7 +157,9 @@ function buildState(): AppState {
     pausedUntil: scheduler.pausedUntil,
     recent: store.recentDays(7),
     streak: store.streak(),
-    resolvedTheme: currentTheme()
+    resolvedTheme: currentTheme(),
+    version: app.getVersion(),
+    update: updateState
   }
 }
 
@@ -154,7 +172,9 @@ function signatureOf(state: AppState): string {
     pausedUntil: state.pausedUntil === null ? null : Math.floor(state.pausedUntil / 60_000),
     recent: state.recent,
     streak: state.streak,
-    resolvedTheme: state.resolvedTheme
+    resolvedTheme: state.resolvedTheme,
+    version: state.version,
+    update: state.update
   })
 }
 
@@ -281,13 +301,21 @@ function applySettings(patch: Partial<Settings>): AppState {
     clean.idleThresholdMin = clampNumber(patch.idleThresholdMin, 1, 120, 8)
   if (patch.autoLaunch !== undefined) clean.autoLaunch = Boolean(patch.autoLaunch)
   if (patch.theme !== undefined && isThemePref(patch.theme)) clean.theme = patch.theme
+  if (patch.autoCheckUpdate !== undefined)
+    clean.autoCheckUpdate = Boolean(patch.autoCheckUpdate)
 
   const wasFloatEnabled = store.settings.floatEnabled
+  const wasAutoCheck = store.settings.autoCheckUpdate
   const settings = store.patchSettings(clean)
   scheduler.update(settings)
   applyAutoLaunch()
   applyThemeSource()
   syncWindowTheme()
+
+  // 刚把开关打开就先查一次，不然「明明开了却一直没动静」
+  if (settings.autoCheckUpdate && !wasAutoCheck) {
+    setTimeout(() => void runUpdateCheck(), 300)
+  }
 
   // 透明模式是窗口创建参数，改了必须重建
   float.setTransparent(settings.floatTransparent)
@@ -377,6 +405,15 @@ function registerIpc(): void {
     if (error) console.error('[shell] 打开数据目录失败：', error)
   })
   ipcMain.handle('app:open-main', () => showMainWindow())
+  ipcMain.handle('update:check', () => runUpdateCheck())
+  ipcMain.handle('update:open', (_event, url: unknown) => {
+    // 链接来自远端 JSON，开之前必须校验域名：别把任意 URL 交给系统浏览器
+    if (isTrustedReleaseUrl(url)) {
+      void shell.openExternal(url)
+    } else {
+      void shell.openExternal(releasePageUrl())
+    }
+  })
   ipcMain.handle('app:quit', () => {
     isQuitting = true
     app.quit()
@@ -475,6 +512,11 @@ async function init(): Promise<void> {
     syncWindowTheme()
     refresh(true)
   })
+
+  // 启动后自动查一次更新。冒烟自检不查：它会自动退出，查了也是白查
+  if (store.settings.autoCheckUpdate && !SMOKE) {
+    setTimeout(() => void runUpdateCheck(), UPDATE_CHECK_DELAY_MS)
+  }
 
   if (SMOKE) runSmokeTest()
 }

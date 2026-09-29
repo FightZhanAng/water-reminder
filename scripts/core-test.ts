@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS } from '../src/shared/defaults'
 import { nextReminderAt } from '../src/shared/schedule'
 import { recentDays, streakDays } from '../src/shared/stats'
 import { isThemePref, THEME_PREFS } from '../src/shared/theme'
+import { isNewer, isTrustedReleaseUrl, parseVersion } from '../src/shared/update'
 import type { DrinkLog, Settings } from '../src/shared/types'
 
 let checks = 0
@@ -112,6 +113,25 @@ check('默认跟随系统', DEFAULT_SETTINGS.theme, 'system')
 check('非法偏好值被拒', isThemePref('midnight'), false)
 check('合法偏好值被接受', isThemePref('dark'), true)
 check('白名单覆盖全部偏好', THEME_PREFS.every(isThemePref), true)
+
+console.log('\n--- 版本号比较（更新检查） ---')
+check('解析带 v 前缀', JSON.stringify(parseVersion('v0.3.0')), '[0,3,0]')
+check('解析不带前缀', JSON.stringify(parseVersion('0.3.0')), '[0,3,0]')
+check('丢掉预发布后缀', JSON.stringify(parseVersion('0.4.0-beta.1')), '[0,4,0]')
+check('解析不出来返回 null', parseVersion('latest'), null)
+check('非字符串返回 null', parseVersion(undefined), null)
+check('补丁号变大算新', isNewer('0.3.1', '0.3.0'), true)
+check('次版本号变大算新', isNewer('0.4.0', '0.3.9'), true)
+check('主版本号变大算新', isNewer('1.0.0', '0.9.9'), true)
+check('位数不同也要比（0.4 vs 0.3.9）', isNewer('0.4', '0.3.9'), true)
+check('同版本不算新', isNewer('0.3.0', '0.3.0'), false)
+check('旧版本不算新', isNewer('0.2.9', '0.3.0'), false)
+check('远端版本号解析不出来时不误报', isNewer('nightly', '0.3.0'), false)
+check('本地版本号解析不出来时不误报', isNewer('0.4.0', 'dev'), false)
+check('只认 github.com 的下载地址', isTrustedReleaseUrl('https://github.com/a/b/releases/tag/v1'), true)
+check('别的域名被拒', isTrustedReleaseUrl('https://evil.example.com/x.exe'), false)
+check('http 也被拒', isTrustedReleaseUrl('http://github.com/a/b'), false)
+check('非字符串被拒', isTrustedReleaseUrl(undefined), false)
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${checks - failures}/${checks} 项通过`)
 if (failures > 0) process.exitCode = 1
