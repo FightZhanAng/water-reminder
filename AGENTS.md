@@ -128,6 +128,22 @@ git remote get-url origin                # 复核，必须还是 SSH
 - **不要打印 token**：`gh auth token` 的结果不要进日志/回复。
 - 推完必须把 `origin` 还原成 SSH 地址。
 
+**用代理执行器（非交互工具）跑推送时，走 Bash 而不是 PowerShell。**
+完全相同的参数，经由 PowerShell 那一侧执行会 `exit 128` 而且**把 git 的错误输出全部吞掉**
+（`*>` 重定向到文件也是空文件），现场只剩一个退出码，没法排查。Bash 侧同样的命令一次成功：
+
+```bash
+ORIG=$(git remote get-url origin)
+git remote set-url origin https://github.com/FightZhanAng/water-reminder.git
+GIT_TERMINAL_PROMPT=0 git -c "credential.helper=" \
+  -c "credential.helper=!gh auth git-credential" push origin main 2>&1 | tail -20
+echo "exit=${PIPESTATUS[0]}"          # 管道吃掉了退出码，必须取 PIPESTATUS 才是 git 的
+git remote set-url origin "$ORIG"     # 无论成败都要还原
+```
+
+- Bash 的 PATH 里有 `gh`（`/c/Program Files/GitHub CLI/gh`），凭据助手照常工作。
+- `... | tail` 之后看 `$?` 拿到的是 `tail` 的退出码，会误判成成功。
+
 ### 3.2 报错对照表
 
 | 报错 | 真正原因 | 处理 |
@@ -135,6 +151,7 @@ git remote get-url origin                # 复核，必须还是 SSH
 | `ssh: connect to host ssh.github.com port 443: Connection timed out` | SSH 通道不稳 | 走 §3.1 |
 | `Received disconnect ... Bye Bye` + 退出码 255 | SSH 认证没过（注意：没有 `Hi <user>!` 就是没通过） | 走 §3.1 |
 | `fatal: could not read Username for 'https://github.com'` | HTTPS 无凭据 + 禁用了交互 | 走 §3.1 |
+| `git push` 退出 128，且**一行输出都没有** | 从 PowerShell 侧执行，错误被吞了 | 换 Bash 跑同一套命令（§3.1） |
 | `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` | pnpm 依赖检查 + 无 TTY | 走 §1 的直接调用 |
 | `Cannot read properties of undefined (reading 'isPackaged')` | `ELECTRON_RUN_AS_NODE` | §2.1 |
 | `HTTP 502 Bad Gateway`（gh / git） | GitHub 瞬时故障 | 等 20 秒重试一次 |
