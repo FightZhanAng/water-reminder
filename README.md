@@ -38,9 +38,9 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 
 | 文件 | 说明 |
 | --- | --- |
-| `water-reminder-0.6.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
-| `water-reminder-0.6.0-portable.exe` | 免安装单文件版，双击直接跑 |
-| `water-reminder-0.6.0-x64.nsis.7z` | 安装包的载荷数据 |
+| `water-reminder-0.7.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-0.7.0-portable.exe` | 免安装单文件版，双击直接跑 |
+| `water-reminder-0.7.0-x64.nsis.7z` | 安装包的载荷数据 |
 | `win-unpacked/` | 免安装的解包版本，双击里面的 `water-reminder.exe` 直接跑 |
 
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
@@ -52,8 +52,8 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 并把两个安装包挂到 Release 上：
 
 ```bash
-git tag -a v0.6.0 -m "喝水提醒 0.6.0"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "喝水提醒 0.7.0"
+git push origin v0.7.0
 ```
 
 工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，
@@ -117,10 +117,38 @@ git push origin v0.6.0
 （`WINDOW_BG` / `FLOAT_BG`）—— 主进程读不到 CSS，只能和 `tokens.css` 里的
 `--bg`、`--surface` 各写一份、手动对齐。
 
+### 标题栏也跟着主题走（WCO）
+
+Windows 的原生标题栏（caption）根本不理应用的深浅设置。它的着色优先级是
+**应用显式设的 caption 色 > 系统强调色 > 应用主题深浅** —— 所以只把偏好灌进
+`nativeTheme.themeSource` 是改不动它的；系统一开「在标题栏和窗口边框上显示强调色」
+（`HKCU\Software\Microsoft\Windows\DWM\ColorPrevalence`），它更是被锁死成一个颜色。
+表现就是深色面板一直顶着一条浅色标题栏，切主题时页面上下一片变色、只有头顶那条不动。
+
+唯一能跟着主题走的做法是把原生 caption 藏掉，改用 Window Controls Overlay：
+`titleBarStyle: 'hidden'` + `titleBarOverlay`，底色给全透明（`#00000000`）
+—— 等于把标题栏这块交回渲染层自己画，`symbolColor` 只管三个系统按钮的符号色。
+主题一变（含系统深浅切换）就调 `win.setTitleBarOverlay()` 重新着色，
+否则深色底上会留着深色符号，三个按钮看着像被删了。
+
+页面这侧有三个必须同时成立的约束：
+
+1. `.titlebar` 就是标题栏，整条 `-webkit-app-region: drag`（窗口只有这一处能拖），
+   里面的「关于」按钮要显式 `no-drag`，否则点不开
+2. 高度必须和主进程的 `TITLEBAR_HEIGHT` 逐像素一致（`--titlebar-h` = 34px）：
+   系统三键的高度与落位由主进程那份决定，对不上就会浮在标题栏上半截
+3. 右侧留出 `--titlebar-controls-w`（三键在 Windows 上占 138px），
+   别让主题切换、暂停这些控件躲到三键底下点不着
+
+品牌与操作按钮因此都退到第二行的工具栏（`.topbar`），标题栏那一条只有
+「关于」和系统三键 —— 越干净越不会被误当成工具条乱点。
+
 ## 版本号与更新检查
 
 窗口底部常驻一条状态栏：左边版本号，右边更新状态。启动 8 秒后自动查一次
-（设置 →「其他」→ 自动检查更新，可关），也可以随时点「检查更新」。
+（设置 →「其他」→ 自动检查更新，可关），也可以随时点「检查更新」——
+标题栏左侧的「关于」菜单里有同一个入口，另外两项是「版本」（点开是版本信息弹窗：
+应用版本、Electron 与 Chromium 版本、当前更新状态）和「退出」。
 
 - **只提示，不自动下载**：发现新版本时给出「去下载」，打开 GitHub 的 Release 页，
   由你自己选装安装版还是便携版
@@ -356,7 +384,21 @@ Host github.com
 **Electron 二进制从本地缓存解压安装。**
 本机网络访问不到 GitHub Releases，所以 `node_modules/electron/dist` 是从
 `%LOCALAPPDATA%/electron/Cache` 里已有的 `electron-v43.3.0-win32-x64.zip` 手动解压的。
-如果换机器、或用 `pnpm approve-builds` 重装失败，重新解压一次即可：
+
+装依赖时先看 pnpm 的构建脚本白名单：pnpm 10 起 `package.json` 里的
+`pnpm.onlyBuiltDependencies` **不再生效**（pnpm 11 会忽略并警告），白名单只认
+`pnpm-workspace.yaml` 的 `allowBuilds`。不在名单里的依赖会**静默跳过** postinstall，
+表现为 `node_modules/electron/dist` 根本不存在；漏批时 `pnpm run` 还会因为
+依赖状态检查失败直接中止（`ERR_PNPM_IGNORED_BUILDS`）。
+
+补装让 electron 自己去缓存里取即可（`@electron/get` 先查缓存，命中就不联网）：
+
+```bash
+node node_modules/electron/install.js
+cat node_modules/electron/path.txt        # 内容是 electron.exe 即成功
+```
+
+实在不行再手动解压，重新解压一次即可：
 
 ```bash
 cd node_modules/electron

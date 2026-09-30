@@ -57,6 +57,37 @@ input {
   height: 100%;
 }
 
+/*
+ * 标题栏 —— 窗口最顶上那一条。
+ *
+ * 原生 caption 被主进程藏掉了（见 main/index.ts 的 TITLEBAR），这条是页面自己画的，
+ * 三件事必须一起成立：
+ *   1. 整条 drag，里面的控件各自摘掉拖拽（见 .menu），否则「关于」点不开
+ *   2. 高度锁死 --titlebar-h，和主进程给的 overlay 高度对齐，系统三键才落在这一条正中
+ *   3. 右侧留出三键的宽度，别让任何东西躲到三键底下
+ *
+ * z-index 是为了让下拉菜单浮在下面的工具栏之上。
+ */
+.titlebar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  height: var(--titlebar-h);
+  padding: 0 8px;
+  padding-right: var(--titlebar-controls-w);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/*
+ * 工具栏：品牌 + 主题切换 + 暂停。
+ *
+ * 拖动由标题栏负责，这条不铺 drag —— 拖拽区上的按钮本来就要靠 no-drag 一个个摘出来，
+ * 多铺一层只会多几处「看着能点、点了拖窗口」的坑。
+ */
 .topbar {
   display: flex;
   align-items: center;
@@ -72,6 +103,8 @@ input {
   align-items: center;
   gap: 9px;
   min-width: 0;
+  /* 窗口缩到最小时标题文字要自己裁掉，不能溢出去压到右侧的操作按钮上 */
+  overflow: hidden;
 }
 
 .brand-mark {
@@ -97,6 +130,8 @@ input {
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar-actions {
@@ -104,6 +139,175 @@ input {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+/* -------------------------------------------------------------- 关于菜单 */
+
+.menu {
+  position: relative;
+  /* 标题栏整条是拖拽区，这里的控件必须退出，否则点击被窗口拖拽吃掉 */
+  -webkit-app-region: no-drag;
+}
+
+.menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.menu-trigger:hover,
+.menu-trigger[aria-expanded='true'] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.menu-caret {
+  width: 8px;
+  height: 8px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 172px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.menu-item:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.menu-item.is-danger {
+  color: var(--danger);
+}
+
+.menu-item.is-danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+/* 右对齐的次要信息（版本号、更新状态）：等宽数字，扫一眼就能比 */
+.menu-item-hint {
+  font-family: var(--font-instrument);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
+/* -------------------------------------------------------------- 版本弹窗 */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: var(--overlay);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 320px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.dialog-mark svg {
+  width: 16px;
+  height: 20px;
+  display: block;
+  fill: var(--accent);
+}
+
+.dialog-title {
+  margin: 0;
+  font-family: var(--font-instrument);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.dialog-sub {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.about-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 12px;
+  margin: 0 0 16px;
+  font-size: 12.5px;
+}
+
+.about-list dt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.about-list dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-instrument);
+  font-variant-numeric: tabular-nums;
 }
 
 .content {

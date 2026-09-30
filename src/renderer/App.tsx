@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatClock } from '@shared/date'
+import AboutMenu from './components/AboutMenu'
 import DropMark from './components/DropMark'
 import QuickLog from './components/QuickLog'
 import SettingsPanel from './components/SettingsPanel'
@@ -56,6 +57,22 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="app">
+      {/*
+        标题栏：只放「关于」和右侧的系统三键（三键是原生画的，页面这侧只负责给它留位）。
+        品牌和操作按钮都下移到工具栏那一行 —— 标题栏这一条越干净，
+        越不会被误当成可以随便点的工具条。
+      */}
+      <div className="titlebar">
+        <AboutMenu
+          version={state.version}
+          update={state.update}
+          checking={checking}
+          onCheck={() => void checkUpdate()}
+          onOpenRepo={() => void window.api.openRepo()}
+          onQuit={() => void window.api.quit()}
+        />
+      </div>
+
       <header className="topbar">
         <div className="brand">
           <span className={reached ? 'brand-mark is-done' : 'brand-mark'}>

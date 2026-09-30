@@ -7,7 +7,8 @@ import {
   Notification,
   powerMonitor,
   session,
-  shell
+  shell,
+  type TitleBarOverlay
 } from 'electron'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -98,6 +99,28 @@ const WINDOW_BG = { light: '#e9eff1', dark: '#06161c' } as const
 const FLOAT_BG = { light: '#fbfdfd', dark: '#0c2530' } as const
 
 /**
+ * 自绘标题栏（Windows 的 Window Controls Overlay）。
+ *
+ * 原生 caption 不听应用的深浅：它的着色优先级是
+ * 「应用显式设的 caption 色 > 系统强调色 > 应用深浅」，光把偏好灌进
+ * nativeTheme.themeSource 动不了它 —— 系统一开「在标题栏和窗口边框上显示强调色」
+ * 更是直接锁死成一个颜色（DWM\ColorPrevalence）。表现就是深色面板顶着一条
+ * 浅色标题栏，切主题时页面上下一片变色、只有头顶那条不动。
+ *
+ * 唯一能跟着主题走的做法：把原生 caption 藏掉（titleBarStyle: 'hidden'），
+ * 只留系统的三个按钮。底色给全透明 —— 等于把标题栏这块交回渲染层自己画
+ * （页面里就是 .topbar，底色跟着 --surface 走），这里只管三键符号的颜色，
+ * 因为它画在网页之上，CSS 够不着。主题一变就调 setTitleBarOverlay 重新着色。
+ */
+const TITLEBAR = { light: '#0f2730', dark: '#e2f0f1' } as const
+
+/**
+ * 标题栏高度。渲染层的 `--titlebar-h` 必须和它一致：
+ * 三键的高度和纵向位置由这个值决定，对不上就会出现「按钮贴着上半截」的错位。
+ */
+const TITLEBAR_HEIGHT = 34
+
+/**
  * 把应用的外观偏好灌给 Electron。
  *
  * themeSource 一设，渲染层的 `prefers-color-scheme` 就跟着变，原生控件
@@ -118,14 +141,29 @@ function currentFloatBg(): string {
   return nativeTheme.shouldUseDarkColors ? FLOAT_BG.dark : FLOAT_BG.light
 }
 
+/**
+ * 三键符号的颜色随主题走 —— 深色底上留深色符号等于把按钮删了。
+ * 底色恒定透明：标题栏的底色由渲染层的 .topbar 画，换主题时才能整条一起过过渡。
+ */
+function currentTitleBarOverlay(): TitleBarOverlay {
+  return {
+    color: '#00000000',
+    symbolColor: nativeTheme.shouldUseDarkColors ? TITLEBAR.dark : TITLEBAR.light,
+    height: TITLEBAR_HEIGHT
+  }
+}
+
 /** themeSource 里已经是偏好值，shouldUseDarkColors 就是把偏好和系统合起来的结果 */
 function currentTheme(): ResolvedTheme {
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
 }
 
-/** 主题变了要同步窗口底色；跟随系统时，系统切换也走这里 */
+/** 主题变了要同步窗口底色和三键符号；跟随系统时，系统切换也走这里 */
 function syncWindowTheme(): void {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setBackgroundColor(currentWindowBg())
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setBackgroundColor(currentWindowBg())
+    mainWindow.setTitleBarOverlay(currentTitleBarOverlay())
+  }
   float?.setBackground(currentFloatBg())
 }
 
@@ -217,14 +255,19 @@ function refresh(force = false): void {
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 440,
-    height: 700,
+    // 比内容区多出标题栏那一条：多来的 TITLEBAR_HEIGHT 就是「关于」所在的行，
+    // 不补上的话这条会把内容区压扁 34px（同样的窗口高度，能看的内容变少了）
+    height: 700 + TITLEBAR_HEIGHT,
     minWidth: 400,
-    minHeight: 580,
+    minHeight: 580 + TITLEBAR_HEIGHT,
     show: false,
     autoHideMenuBar: true,
     title: '喝水提醒',
     icon: appIconPath(),
     backgroundColor: currentWindowBg(),
+    // 原生标题栏换成自绘（原因见 TITLEBAR 注释）：页面顶上那条 .topbar 就是标题栏
+    titleBarStyle: 'hidden',
+    titleBarOverlay: currentTitleBarOverlay(),
     webPreferences: {
       preload: preloadPath(),
       sandbox: false

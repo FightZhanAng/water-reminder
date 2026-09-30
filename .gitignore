@@ -13,6 +13,9 @@ _tmp_*
 # mimosa 安全扫描插件的 hook 运行状态，机器生成，不属于源码
 .mimosa/
 
+# WorkBuddy 的工作目录（本地记忆 + 真机验证的临时产物），不进仓库
+.workbuddy/
+
 # 排查 Windows 通知身份问题时从开始菜单备份出来的 .lnk
 # （机器生成的快捷方式，不属于源码，别提交）
 .lnk-backup/

@@ -1,0 +1,15 @@
+# pnpm 10 起，允许跑安装脚本的白名单只认这里，不再读 package.json 的
+# pnpm.onlyBuiltDependencies（pnpm 11 会直接忽略并警告）。
+#
+# 这几个都必须放行，否则 postinstall 被静默跳过：
+#   electron      不跑就拿不到二进制，node_modules/electron/dist 是空的
+#   esbuild       vite 的转译器，缺了构建直接失败
+#   electron-builder / electron-winstaller   打包链路（pnpm dist 用得上）
+#
+# 之前这里留的是 pnpm 生成的 "set this to true or false" 占位文本，
+# 导致每次跑脚本前做依赖状态检查都报 ERR_PNPM_IGNORED_BUILDS 并中止。
+allowBuilds:
+  electron: true
+  esbuild: true
+  electron-builder: true
+  electron-winstaller: true
