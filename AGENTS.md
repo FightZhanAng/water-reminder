@@ -232,6 +232,14 @@ git remote set-url origin "$ORIG"     # 无论成败都要还原
 | 每个 step 的结论 | `/repos/.../actions/runs/<id>/jobs` |
 | Release 资产 | `/repos/.../releases/tags/vX.Y.Z` → `assets[]` |
 
+现成脚本：`~/.workbuddy/skills/github-release-verify/scripts/check-release.cjs` ——
+等 run 跑完 + 报各 job 结论 + 报 Release 资产，仓库从 `origin` 推导，
+tag 取 `package.json` 的 `version`，run 按 `head_branch == tag` 自动发现。
+不用再每次现写轮询。
+
+**别把 tag 写死在脚本里。** 之前那版硬编码成 `v0.7.0`，发 0.8.0 时忘了改，
+它静默去查了**上一个** Release，输出看起来完全正常 —— 这种错最难发现。
+
 正常结果：run `completed / success`，job「构建并发布 Windows 安装包」`success`，
 Release `draft=false`，两个产物各约 95 MB：
 
@@ -263,6 +271,12 @@ git tag -a vX.Y.Z -m "喝水提醒 X.Y.Z"
 gh run list --limit 3                                        # status / conclusion
 gh run watch <run-id> --interval 15                          # 阻塞到结束
 gh release view vX.Y.Z --json tagName,isDraft,createdAt,assets
+```
+
+本机没装 `gh`，跑技能里那个现成脚本就等价于上面三条（退出码非 0 即失败）：
+
+```bash
+node ~/.workbuddy/skills/github-release-verify/scripts/check-release.cjs
 ```
 
 正常结果：run `completed / success`，Release `isDraft=false`，
