@@ -1,6 +1,6 @@
 import type { ResolvedTheme, ThemePref } from './theme'
 import type { HolidayStatus, WeekdayMode } from './holiday'
-import type { UpdateCheck } from './update'
+import type { UpdateCheck, UpdateDownload } from './update'
 
 export type DrinkSource = 'manual' | 'tray' | 'shortcut' | 'float' | 'notification'
 
@@ -114,6 +114,14 @@ export interface AppState {
   version: string
   /** 最近一次更新检查的结果；从没查过就是 null */
   update: UpdateCheck | null
+  /**
+   * 应用内下载安装的进度。
+   *
+   * 和 update 分开推：一个是「查到了什么」，一个是「正在做什么」。
+   * 合在一起就得回答「正在下载时 update.state 算哪个」这种问题，
+   * 渲染层只能靠字段猜。
+   */
+  download: UpdateDownload
   /** 节假日/调休数据的本地状态（今年有没有、什么时候更新的） */
   holiday: HolidayStatus
 }
@@ -130,7 +138,16 @@ export interface Api {
   previewFloat(): Promise<FloatState>
   /** 手动查一次更新；结果同时会通过 state 推下来 */
   checkUpdate(): Promise<UpdateCheck>
-  /** 打开新版本的下载页（主进程会校验域名，非 github.com 一律忽略） */
+  /**
+   * 在当前应用内下载、校验并安装新版本。
+   * 成功走到安装那一步的话，本进程随后会自己退出；进度走 state 推下来。
+   */
+  downloadUpdate(): Promise<void>
+  /**
+   * 打开新版本的下载页。
+   * 只在没法应用内安装时用（发布时漏了安装包）；主进程会校验域名，
+   * 非 github.com 一律忽略并退回仓库的 releases 页。
+   */
   openRelease(url: string): Promise<void>
   /** 拉取今年的节假日/调休数据并保存到本地；结果同时会通过 state 推下来 */
   holidayUpdate(): Promise<HolidayStatus>

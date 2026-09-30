@@ -73,8 +73,10 @@ export default function App(): React.JSX.Element {
         <AboutMenu
           version={state.version}
           update={state.update}
+          download={state.download}
           checking={checking}
           onCheck={() => void checkUpdate()}
+          onDownload={() => void window.api.downloadUpdate()}
           onOpenRepo={() => void window.api.openRepo()}
           onQuit={() => void window.api.quit()}
         />
@@ -205,8 +207,10 @@ export default function App(): React.JSX.Element {
       <StatusBar
         version={state.version}
         update={state.update}
+        download={state.download}
         checking={checking}
         onCheck={() => void checkUpdate()}
+        onDownload={() => void window.api.downloadUpdate()}
         onOpen={(url) => void window.api.openRelease(url)}
       />
     </div>

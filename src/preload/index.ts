@@ -10,6 +10,7 @@ const api: Api = {
   extendFloat: () => ipcRenderer.invoke('float:extend'),
   previewFloat: () => ipcRenderer.invoke('float:preview'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
   openRelease: (url: string) => ipcRenderer.invoke('update:open', url),
   holidayUpdate: () => ipcRenderer.invoke('holiday:update'),
   reportFloatMetrics: (metrics) => ipcRenderer.send('float:metrics', metrics),

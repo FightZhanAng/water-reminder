@@ -93,6 +93,18 @@ $env:WATER_SMOKE_TEST = "1"
 用 `&` 调 GUI 程序不等结束、`$LASTEXITCODE` 会是空的 —— 要么
 `Start-Process -PassThru -Wait` 拿退出码，要么直接轮询报告文件确认结果。
 
+**打包后的 exe 也支持 node 模式 + 内联脚本**（2026-09-30 拿
+`release/win-unpacked/water-reminder.exe` 实测）：
+
+```bash
+ELECTRON_RUN_AS_NODE=1 ./release/win-unpacked/water-reminder.exe -e "<脚本>" a b c
+# process.argv = [exe, 'a', 'b', 'c'] —— slice(1) 正好是传给脚本的参数
+```
+
+主进程那个「等本进程退出再拉起安装包」的助手就是靠它跑起来的：
+把脚本作为 `-e` 的实参传进去，一个文件都不用落盘（落 `.cmd` / `.ps1` 的话，
+路径里的中文会被批处理的编码搞乱）。
+
 ### 2.2 到 GitHub 的网络
 
 - **SSH 时通时不通，先花 5 秒验一下再决定走哪条路。**
@@ -334,20 +346,36 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
 同理，改量筒几何时注意：刻度换算和水位换算必须共用同一个 `SPAN`
 （`BOTTOM - INNER_TOP`），否则液面和刻度对不上。
 
-### 6.3 更新检查
+### 6.3 更新：检查 + 应用内下载安装
 
 - **I/O 必须在主进程**：打包后渲染层的 CSP 是 `default-src 'self'`，`connect-src`
   跟着回落，渲染层直接 `fetch` 外网会被挡掉。用 `net.fetch`（走 Chromium 网络栈，
   能吃系统代理），别用全局 fetch。
-- **纯逻辑放 `src/shared/update.ts`**（版本解析/比较、地址白名单），跟着
-  `pnpm test:core` 一起测。版本比较写错了不会报错，只会「永远说已是最新」。
-- **远端给的 URL 不能直接交给 `shell.openExternal`**：只认 `https://github.com/`
-  开头，不合法就退回仓库 releases 页。
-- **本机测不了真实链路**（够不到 GitHub）。验证用 `WATER_UPDATE_API` 把地址指到
-  本地 mock 服务，七种情形（有新版本 / 已是最新 / 非 github 域名 / 缺 html_url /
-  版本号不可解析 / 500 / 超时）都能覆盖。
-- **只提示，不自动下载**：这是刻意选的形态。便携版本来也无法自更新，
-  静默重启又会打断常驻托盘的工具。
+- **纯逻辑放 `src/shared/update.ts`**（版本解析/比较、挑包、摘要解析、地址白名单、
+  体积文案），跟着 `pnpm test:core` 一起测。这几样写错了都不报错：
+  版本比较错了是「永远说已是最新」，挑包错了是下载到不对的那个安装包，
+  摘要解析放松了是校验形同虚设。
+- **`isNewer(candidate, current)` 是 candidate 在前**，写反了不报错，只会永远 false。
+- **任何来自远端的地址都要过白名单**：下载地址只认本仓库
+  `releases/download/` 前缀 —— 光校验域名不够，仓库里任何一个 release 的
+  任何一个附件都能塞进来自动执行；`shell.openExternal` 只认 `https://github.com/`。
+- **三重校验缺一不可**（体积 / sha256 / MZ 头），任何一条不过都必须把文件删掉。
+  少了体积那条，就会拿半个安装包去执行 —— 传输中断不会让 `fetch` 报错。
+- **别把失败原因写长**：状态栏只有 440px。早先那句「应为 4198400 字节，实际收到
+  4194304」在界面上被省略号切掉后半截，唯一有信息量的数字全没了。
+  用 `formatSize` 折算成「少了 4 KB」这种。
+- **`spawn` 失败是异步报的**：`child_process.spawn` 撞上 ENOENT / EACCES 不会抛，
+  而是下一个 tick 发 `error` 事件。等待助手里只写同步 `try/catch` 的话，日志永远
+  写「spawned」，而「点了更新没反应」唯一需要的那句真实原因恰好在那儿。
+  要挂 `child.on('error')`，并且别让助手进程立刻退出（事件还没到就退了）。
+- **拉起目标前必须 `delete env.ELECTRON_RUN_AS_NODE`**：助手自己是靠这个变量退化成
+  Node 的，子进程默认继承环境 —— 不摘掉的话免安装版的新包会以 Node 模式启动，
+  没有窗口、没有托盘，还正常退 0，查起来毫无线索。
+- **只提示 + 用户点一下才开始**：不后台偷偷下，也不静默重启。便携版本来也无法
+  自更新，静默重启又会打断常驻托盘的工具。
+- **本机测不了真实链路**（够不到 GitHub）。完整链路验证用 `WATER_UPDATE_API`
+  把地址指到本地 mock —— 它同时会放行 mock 源的下载白名单，否则
+  「下载 → 校验 → 拉起」这一段在真机上根本走不到。脚本见 §7.2。
 
 ### 6.4 节假日/调休判定
 
@@ -454,4 +482,37 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
   （液面波多画了两个周期）。查越界时先 `el.closest('[clip-path]')` 过滤。
 - **重载之后立刻查 `document.fonts.check()` 会得到 `false`**（`ignoreCache: true`
   要重新解码字体，`status === 'loading'`）。别据此判定「内联字体没加载成功」。
+
+### 7.2 应用内更新的验证脚本（放 `%TEMP%`，不进仓库）
+
+本机够不到 GitHub，`WATER_UPDATE_API` 指向本地 mock 才跑得了完整链路。三个脚本
+（`%TEMP%\wr-update-verify\`；其中驱动脚本的通用版已经沉淀到技能
+`electron-gui-verify/scripts/cdp-drive.cjs`）：
+
+- `mock-server.cjs` —— 假的 `releases/latest` + 假下载端点，`MOCK_MODE` 切
+  `ok` / `bad-digest` / `no-digest` / `size-lie` / `html` / `flaky` / `big`
+- `drive.cjs` —— CDP 点按钮、逐次记录状态栏、截图；可被 require
+- `matrix.cjs` —— 每条用例起一个 mock + 一个隔离的应用实例，跑完核对落盘的字节数/
+  sha256、助手日志，最后打一张断言表
+
+```bash
+node %TEMP%\wr-update-verify\matrix.cjs          # 全部用例（7 条，约 4 分钟）
+node %TEMP%\wr-update-verify\matrix.cjs big      # 只跑某一条
+```
+
+四个会误导判定的坑：
+
+- **靠 CDP 轮询采不到短的相位。** 一次 `Runtime.evaluate` + 截图要 200ms 上下，
+  而「正在校验安装包」在本地盘上只有零点几毫秒。采样竞态会让结果随机 ——
+  同一份代码这轮通过下轮不通过。正确做法是在页面里挂 `MutationObserver` 同步记一笔、
+  轮询只负责把记录取回来（`window.__wrFlush()`）。
+- **观察器不能装太早。** 应用刚起来时 React 还在渲染「正在加载…」，
+  那时 `querySelector('.statusbar')` 是 `null`，观察器会挂在不存在的元素上、
+  **静默采到 0 条**，而表面上一切正常。要轮询到 `.statusbar` 出现再装。
+- **应用每次启动都会清空下载临时目录**（`cleanupLeftovers`）。各用例的落地文件、
+  `apply.log` 必须在本轮内读掉 —— 留到全部跑完再统一断言，读到的是
+  「已被下一条用例清掉」，报的错会指向完全无关的地方。
+- **别拿真安装包当载荷。** 助手会真的把它 `spawn` 起来。用
+  `where.exe + 零填充` 的假 PE 最安全：有 MZ 头（过校验）、能被 `spawn`、无副作用。
+  想看「正在校验」就把它撑到 192MB（64MB 的 fsync 只有 150ms，还是会漏）。
 

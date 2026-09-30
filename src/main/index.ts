@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { dayKey, isValidHM } from '../shared/date'
 import { isWeekdayMode, type HolidayStatus } from '../shared/holiday'
 import { isThemePref, type ResolvedTheme } from '../shared/theme'
-import { isTrustedReleaseUrl, type UpdateCheck } from '../shared/update'
+import { isTrustedReleaseUrl, type UpdateCheck, type UpdateDownload } from '../shared/update'
 import type { AppState, DrinkSource, FloatMetrics, FloatState, Settings } from '../shared/types'
 import { FloatWindow } from './float'
 import { HolidayStore } from './holidays'
@@ -25,7 +25,14 @@ import { appIconPath, assetsDir, hardenWindow, loadRenderer, preloadPath } from 
 import { Scheduler } from './scheduler'
 import { Store } from './store'
 import { TrayController } from './tray'
-import { checkForUpdate, releasePageUrl, repoPageUrl } from './updater'
+import {
+  checkForUpdate,
+  cleanupLeftovers,
+  downloadUpdate,
+  launchAfterExit,
+  releasePageUrl,
+  repoPageUrl
+} from './updater'
 
 /**
  * Windows 通知身份（AppUserModelID）。
@@ -172,13 +179,118 @@ function syncWindowTheme(): void {
 /** 最近一次检查结果。从没查过就是 null，渲染层据此显示「检查更新」 */
 let updateState: UpdateCheck | null = null
 
+/** 应用内下载安装的进度。idle = 当前没在做事（也从没做过） */
+let downloadState: UpdateDownload = { state: 'idle' }
+
 /** 启动后隔一会儿再查：别和启动那一堆事抢资源，也别让首屏先闪一下「正在检查」 */
 const UPDATE_CHECK_DELAY_MS = 8000
 
+/**
+ * 进度推送的最小间隔。
+ *
+ * 100MB 的包会切出上千个数据块；每个块都推一次状态，渲染层就要把整棵树重渲染
+ * 上千遍 —— 界面反而会在下载期间卡住。字节是匀速来的，120ms 一次肉眼已经是连续的了。
+ */
+const PROGRESS_INTERVAL_MS = 120
+
+/**
+ * 退出前的等待。必须留：`app.quit()` 之后进程就不处理渲染层了，
+ * 不给这一步的话「正在安装」这四个字可能一次都没画出来。
+ */
+const INSTALL_QUIT_DELAY_MS = 900
+
+/**
+ * 安装阶段的看门狗。
+ *
+ * 退出被什么东西挡住（比如某个 beforeunload 拦了 close）时，界面会永久停在
+ * 「正在安装，即将重启」上 —— 用户既装不上也退不出，只能去杀进程。
+ * 到点就把状态复位，至少让他知道要自己动手。
+ */
+const INSTALL_WATCHDOG_MS = 15 * 60_000
+
+let installWatchdog: ReturnType<typeof setTimeout> | null = null
+let lastProgressAt = 0
+
 async function runUpdateCheck(): Promise<UpdateCheck> {
   updateState = await checkForUpdate(app.getVersion())
+  // 重查一次就把上一轮的失败留在历史上：版本号可能都变了，
+  // 界面上挂着「0.9.0 下载失败」而实际要装的是 1.0.0，只会让人更糊涂。
+  // 下载中/校验中/安装中不动 —— 那是正在进行的事，不能被一次查询打断。
+  if (downloadState.state === 'idle' || downloadState.state === 'error') {
+    downloadState = { state: 'idle' }
+  }
   refresh(true)
   return updateState
+}
+
+/**
+ * 应用内完成下载 → 校验 → 安装。
+ *
+ * 为什么不做「静默下载、退出时替换」那一套：免安装版没有安装器能把自己重新拉起来，
+ * 而引一个外置 updater 又会顺带接管安装路径，把现有的便携用法一起破坏掉。
+ * 现在的做法是：
+ *   - 安装版 → 下 setup.exe 并启动它（安装器自己会关掉旧实例、装完重启）；
+ *   - 免安装版 → 把同目录的新 portable.exe 下下来，覆盖后再启动它。
+ * 两条路都保住 `%APPDATA%\water-reminder`，记录不会丢。
+ */
+async function runUpdateDownload(): Promise<void> {
+  const pending = updateState?.state === 'update' ? updateState : null
+
+  if (!pending) {
+    downloadState = { state: 'error', reason: '还没查到新版本，请先检查更新' }
+    refresh(true)
+    return
+  }
+  if (!pending.asset) {
+    // 发布时漏了安装包、或者文件名不符合约定。宁可让用户去发布页手动下，
+    // 也不能随手挑一个资产当安装包执行
+    downloadState = { state: 'error', reason: '这个版本没有可直接安装的包，请到发布页下载' }
+    refresh(true)
+    return
+  }
+  if (downloadState.state === 'downloading' || downloadState.state === 'verifying') return
+  if (downloadState.state === 'installing') return
+
+  const latest = pending.latest
+  downloadState = { state: 'downloading', latest, received: 0, total: pending.asset.size }
+  lastProgressAt = 0
+  refresh(true)
+
+  try {
+    const file = await downloadUpdate(pending.asset, {
+      onProgress: ({ received, total }) => {
+        const now = Date.now()
+        if (now - lastProgressAt < PROGRESS_INTERVAL_MS) return
+        lastProgressAt = now
+        downloadState = { state: 'downloading', latest, received, total }
+        refresh()
+      },
+      onVerifying: () => {
+        downloadState = { state: 'verifying', latest }
+        refresh(true)
+      }
+    })
+
+    downloadState = { state: 'installing', latest }
+    refresh(true)
+
+    // 先起助手再退出：助手会等我们这个 pid 消失，然后才把安装包拉起来。
+    // 顺序反过来（先退再起）在免安装版上会撞单实例锁 —— 新包就是我们自己。
+    launchAfterExit(file)
+
+    installWatchdog = setTimeout(() => {
+      downloadState = { state: 'idle' }
+      refresh(true)
+    }, INSTALL_WATCHDOG_MS)
+
+    setTimeout(() => {
+      isQuitting = true
+      app.quit()
+    }, INSTALL_QUIT_DELAY_MS)
+  } catch (err) {
+    downloadState = { state: 'error', reason: err instanceof Error ? err.message : String(err) }
+    refresh(true)
+  }
 }
 
 /* ------------------------------------------------------- 节假日/调休数据 */
@@ -220,11 +332,23 @@ function buildState(): AppState {
     resolvedTheme: currentTheme(),
     version: app.getVersion(),
     update: updateState,
+    download: downloadState,
     holiday: holidayStore.getStatus()
   }
 }
 
-/** 把秒级抖动抹掉，这样倒计时不会每 10 秒推一次状态 */
+/**
+ * 把秒级抖动抹掉，这样倒计时不会每 10 秒推一次状态。
+ * 下载进度同理按千分比进签名：原样带上字节数的话，一次 100MB 的下载
+ * 会推出上千条各不相同的状态，渲染层每次都重渲染整棵树。
+ */
+function progressKey(download: UpdateDownload): unknown {
+  if (download.state !== 'downloading') return download
+  const permille =
+    download.total > 0 ? Math.round((download.received / download.total) * 1000) : 0
+  return { state: download.state, latest: download.latest, permille }
+}
+
 function signatureOf(state: AppState): string {
   return JSON.stringify({
     today: state.today,
@@ -236,6 +360,7 @@ function signatureOf(state: AppState): string {
     resolvedTheme: state.resolvedTheme,
     version: state.version,
     update: state.update,
+    download: progressKey(state.download),
     holiday: state.holiday
   })
 }
@@ -494,6 +619,7 @@ function registerIpc(): void {
     void shell.openExternal(repoPageUrl())
   })
   ipcMain.handle('update:check', () => runUpdateCheck())
+  ipcMain.handle('update:download', () => runUpdateDownload())
   ipcMain.handle('holiday:update', () => runHolidayUpdate())
   ipcMain.handle('update:open', (_event, url: unknown) => {
     // 链接来自远端 JSON，开之前必须校验域名：别把任意 URL 交给系统浏览器
@@ -610,6 +736,10 @@ async function init(): Promise<void> {
     setTimeout(() => void runUpdateCheck(), UPDATE_CHECK_DELAY_MS)
   }
 
+  // 顺手清掉上次更新留下的安装包（一个包近百兆）。不 await：
+  // 它是纯打扫，删不掉（正被安装器占着）也不该拖慢启动
+  if (!SMOKE) void cleanupLeftovers()
+
   // 按节假日判定开着但今年还没数据：启动后补拉一次，
   // 拉不到也不重试轰炸，界面上的提示会引导用户手动点「更新到本地」
   if (needsHolidayFetch() && !SMOKE) {
@@ -707,6 +837,8 @@ if (!app.requestSingleInstanceLock()) {
     scheduler?.stop()
     float?.destroy()
     tray?.destroy()
+    // 不撤掉的话，这个 15 分钟的定时器会一直挂在事件循环上
+    if (installWatchdog) clearTimeout(installWatchdog)
   })
 
   void app.whenReady().then(init)

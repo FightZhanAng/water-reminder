@@ -12,7 +12,15 @@ import { isActiveDate, nextReminderAt } from '../src/shared/schedule'
 import { parseHolidayPayload, resolveWorkday } from '../src/shared/holiday'
 import { recentDays, streakDays } from '../src/shared/stats'
 import { isThemePref, THEME_PREFS } from '../src/shared/theme'
-import { isNewer, isTrustedReleaseUrl, parseVersion } from '../src/shared/update'
+import {
+  formatSize,
+  isNewer,
+  isTrustedAssetUrl,
+  isTrustedReleaseUrl,
+  parseSha256Digest,
+  parseVersion,
+  pickUpdateAsset
+} from '../src/shared/update'
 import type { DrinkLog, Settings } from '../src/shared/types'
 
 let checks = 0
@@ -133,6 +141,100 @@ check('只认 github.com 的下载地址', isTrustedReleaseUrl('https://github.c
 check('别的域名被拒', isTrustedReleaseUrl('https://evil.example.com/x.exe'), false)
 check('http 也被拒', isTrustedReleaseUrl('http://github.com/a/b'), false)
 check('非字符串被拒', isTrustedReleaseUrl(undefined), false)
+
+console.log('\n--- 应用内更新：挑包 / 摘要 / 下载地址 ---')
+
+const asset = (name: string, size = 100, sha256: string | null = null) => ({
+  name,
+  url: `https://github.com/FightZhanAng/water-reminder/releases/download/v9.9.9/${name}`,
+  size,
+  sha256
+})
+const RELEASE_ASSETS = [
+  asset('water-reminder-9.9.9-setup.exe', 100_031_839),
+  asset('water-reminder-9.9.9-portable.exe', 99_796_368),
+  asset('latest.yml', 300)
+]
+
+check(
+  '安装版挑到 setup',
+  pickUpdateAsset(RELEASE_ASSETS, 'setup')?.name,
+  'water-reminder-9.9.9-setup.exe'
+)
+check(
+  '免安装版挑到 portable',
+  pickUpdateAsset(RELEASE_ASSETS, 'portable')?.name,
+  'water-reminder-9.9.9-portable.exe'
+)
+check('没有对应资产时返回 null（渲染层据此退回打开发布页）', pickUpdateAsset([asset('latest.yml')], 'setup'), null)
+check('空列表返回 null', pickUpdateAsset([], 'setup'), null)
+check(
+  '后缀必须完整匹配，不能被别的名字骗到',
+  pickUpdateAsset([asset('water-reminder-9.9.9-setup.exe.blockmap')], 'setup'),
+  null
+)
+check(
+  '同一后缀出现多个时挑最大的',
+  pickUpdateAsset([asset('a-setup.exe', 10), asset('b-setup.exe', 900)], 'setup')?.size,
+  900
+)
+check('大小写不敏感', pickUpdateAsset([asset('X-Setup.EXE')], 'setup')?.name, 'X-Setup.EXE')
+
+check('解析 sha256 摘要', parseSha256Digest(`sha256:${'a'.repeat(64)}`), 'a'.repeat(64))
+check('摘要统一转小写', parseSha256Digest(`SHA256:${'A'.repeat(64)}`), 'a'.repeat(64))
+check('容忍前后空白', parseSha256Digest(`  sha256:${'b'.repeat(64)}  `), 'b'.repeat(64))
+check('别的算法被拒', parseSha256Digest(`sha512:${'a'.repeat(128)}`), null)
+check('长度不足（截断）被拒', parseSha256Digest(`sha256:${'a'.repeat(63)}`), null)
+check('长度超出被拒', parseSha256Digest(`sha256:${'a'.repeat(65)}`), null)
+check('空摘要被拒 —— 不能宽松地当成合法值，否则校验永远通过', parseSha256Digest('sha256:'), null)
+check('没有算法前缀被拒', parseSha256Digest('a'.repeat(64)), null)
+check('非字符串被拒', parseSha256Digest(null), null)
+
+const OK_ASSET_URL = `https://github.com/FightZhanAng/water-reminder/releases/download/v9.9.9/water-reminder-9.9.9-setup.exe`
+const MOCK_PREFIX = 'http://127.0.0.1:8099/'
+
+check('认本仓库的 releases/download 地址', isTrustedAssetUrl(OK_ASSET_URL), true)
+check(
+  '别的仓库被拒 —— 只校验 github.com 域名会放过任何人上传的包',
+  isTrustedAssetUrl('https://github.com/evil/evil/releases/download/v1/x.exe'),
+  false
+)
+check(
+  '本仓库的非下载路径被拒',
+  isTrustedAssetUrl('https://github.com/FightZhanAng/water-reminder/releases/tag/v9.9.9'),
+  false
+)
+check(
+  '本仓库的其他路径也被拒',
+  isTrustedAssetUrl('https://github.com/FightZhanAng/water-reminder/issues'),
+  false
+)
+check('http 被拒', isTrustedAssetUrl(OK_ASSET_URL.replace('https', 'http')), false)
+check('空串被拒', isTrustedAssetUrl(''), false)
+check('非字符串被拒', isTrustedAssetUrl(null), false)
+check('验证模式下放行 mock 前缀', isTrustedAssetUrl(`${MOCK_PREFIX}x.exe`, MOCK_PREFIX), true)
+check(
+  '验证模式不会顺带放行别的地址',
+  isTrustedAssetUrl('http://evil.example.com/x.exe', MOCK_PREFIX),
+  false
+)
+check('空的前缀等于没开验证模式', isTrustedAssetUrl(`${MOCK_PREFIX}x.exe`, ''), false)
+
+console.log('\n--- 体积文案（状态栏只有 440px） ---')
+// 这组用例的存在理由是「失败原因被省略号截掉」：早先写的是
+// 「应为 4198400 字节，实际收到 4194304」，界面上只显示到「实际收…」，
+// 唯一有信息量的数字全没了。所以这里逐个钉死每种量级的输出。
+check('0 字节', formatSize(0), '0 B')
+check('负数按 0 处理', formatSize(-5), '0 B')
+check('NaN 按 0 处理', formatSize(Number.NaN), '0 B')
+check('不足 1KB 按字节', formatSize(512), '512 B')
+check('少了 4 KB', formatSize(4096), '4 KB')
+check('不到 1MB 还在 KB 档', formatSize(1023 * 1024), '1023 KB')
+check('整 1MB 保留一位小数', formatSize(1024 * 1024), '1.0 MB')
+check('4MB 的假包', formatSize(4194304), '4.0 MB')
+check('95.4MB 的真安装包', formatSize(100031843), '95.4 MB')
+check('刚好 100MB 起去掉小数', formatSize(100 * 1024 * 1024), '100 MB')
+check('192MB', formatSize(201326592), '192 MB')
 
 console.log('\n--- 节假日/调休：解析与判定 ---')
 // 夹具取自 timor.tech 真实的 2026 年数据（元旦 1/1~1/3 休、1/4 周日补班；
