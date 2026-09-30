@@ -12,6 +12,13 @@ import WeekChart from './components/WeekChart'
 import { useAppState } from './useAppState'
 import { useTheme } from './useTheme'
 
+/**
+ * 水位尺上的分度：每 10% 一道，逢 25 加长。
+ * 这些位置是固定的刻度位置（0–100%），和当前水位无关 ——
+ * 水位由 .hero-rail-fill 的宽度表示，尺子本身不动。
+ */
+const RAIL_TICKS = Array.from({ length: 11 }, (_, i) => i * 10)
+
 export default function App(): React.JSX.Element {
   const { state, addDrink, undo, patch, pause, resume } = useAppState()
   const [now, setNow] = useState(() => Date.now())
@@ -36,7 +43,7 @@ export default function App(): React.JSX.Element {
 
   const countdown = useMemo(() => {
     if (!state) return ''
-    if (state.pausedUntil) return `已暂停至 ${formatClock(state.pausedUntil)}`
+    if (state.pausedUntil) return `暂停至 ${formatClock(state.pausedUntil)}`
     if (!state.nextAt) return '今日不再提醒'
     const diff = state.nextAt - now
     if (diff <= 0) return '马上提醒'
@@ -95,34 +102,86 @@ export default function App(): React.JSX.Element {
       </header>
 
       <main className="content">
-        <section className="card">
+        {/*
+          水位区。这一块是整屏的主视觉，所以做了两处「破格」：
+          顶部的横向水位尺通栏铺满、直接冲出卡片内边距（卡片自己不留 padding，
+          内边距交给 .hero-body），量筒则向左出血、视觉上探出内容列。
+        */}
+        <section className="card is-hero">
+          <div
+            className={reached ? 'hero-rail is-done' : 'hero-rail'}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={today.goal}
+            aria-valuenow={today.total}
+            aria-label="今日水位"
+          >
+            <div className="hero-rail-fill" style={{ width: `${percent * 100}%` }} />
+            {/*
+              水位前缘的水面线。单独一个元素而不是 fill 的伪元素：
+              一滴都没有时用百分比定位的伪元素会停在最左边露出一条竖杠，
+              看着像「有一点水」。这里直接不渲染。
+            */}
+            {percent > 0 && (
+              <span
+                className="hero-rail-head"
+                style={{ left: `${percent * 100}%` }}
+                aria-hidden="true"
+              />
+            )}
+            <div className="hero-rail-ticks" aria-hidden="true">
+              {RAIL_TICKS.map((at) => (
+                <span
+                  key={at}
+                  className={at % 25 === 0 ? 'hero-rail-tick is-major' : 'hero-rail-tick'}
+                />
+              ))}
+            </div>
+            <span className="hero-rail-label" aria-hidden="true">
+              {Math.round(percent * 100)}%
+            </span>
+          </div>
+
           <div className="hero-body">
             <WaterGauge total={today.total} goal={today.goal} />
             <div className="readout">
-              <div className="readout-head">
-                <h2 className="eyebrow">今日水位</h2>
-                <span className="readout-percent">{Math.round(percent * 100)}%</span>
-              </div>
+              <h2 className="eyebrow">今日水位</h2>
               <p className="readout-value">
                 {today.total}
                 <span className="readout-unit">ml</span>
               </p>
-              <dl className="readout-list">
-                <dt>目标</dt>
-                <dd>{today.goal} ml</dd>
-                <dt>还差</dt>
-                <dd className={remaining === 0 ? 'is-close' : undefined}>
-                  {remaining === 0 ? '已达标' : `${remaining} ml`}
-                </dd>
-                <dt>今日次数</dt>
-                <dd>{today.logs.length} 次</dd>
-                <dt>连续达标</dt>
-                <dd>{state.streak} 天</dd>
-                <dt>下次提醒</dt>
-                <dd>{countdown}</dd>
+              <dl className="readout-grid">
+                <div className="readout-cell">
+                  <dt>目标</dt>
+                  <dd>{today.goal} ml</dd>
+                </div>
+                <div className="readout-cell">
+                  <dt>还差</dt>
+                  <dd className={remaining === 0 ? 'is-close' : undefined}>
+                    {remaining === 0 ? '已达标' : `${remaining} ml`}
+                  </dd>
+                </div>
+                <div className="readout-cell">
+                  <dt>今日次数</dt>
+                  <dd>{today.logs.length} 次</dd>
+                </div>
+                <div className="readout-cell">
+                  <dt>连续达标</dt>
+                  <dd>{state.streak} 天</dd>
+                </div>
               </dl>
             </div>
           </div>
+
+          {/*
+            倒计时单独占一条通栏，不塞进读数列里：读数列比量筒高，
+            塞进去会让量筒下面空出一大块；通栏之后两块自然齐平，
+            而且「下次提醒」本来就该比那四个格子更显眼。
+          */}
+          <p className="hero-foot">
+            <span className="hero-foot-label">下次提醒</span>
+            <strong>{countdown}</strong>
+          </p>
         </section>
 
         <QuickLog cupSize={settings.cupSize} onLog={addDrink} />

@@ -351,6 +351,49 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
   朴素「现在 + 间隔」只在当天是提醒日且落在窗口内时成立，否则跳到下一个
   合法提醒点 —— 不然节假日喝了杯水，45 分钟后照常弹通知，开关等于虚设。
 
+### 6.5 改界面布局时必踩的两处（类型检查和构建都是绿的）
+
+- **纵向 flex 容器里，带 `overflow: hidden` 的子项会自动最小尺寸 0。**
+  `.content` 是 `display: flex; flex-direction: column`，弹性项默认允许收缩，
+  而自动最小尺寸 `min-height: auto` 在 `overflow` 不是 `visible` 时会退化成 **0**。
+  于是唯一带 `overflow: hidden` 的卡片（`.card.is-hero`，为了顶部水位尺通栏破格）
+  会把整列的收缩量全吞下去、塌成一条 1px 的线，肉眼表现是「这张卡没渲染出来」。
+  所以 `.content > *` 必须写 `flex: none` —— 内容区本来就是滚动容器，
+  子项该保持自然高度、溢出交给滚动。
+- **浮窗只有 200×236（`main/float.ts` 的 `WIDTH/HEIGHT`），纵向多几个像素就从底部溢出。**
+  修法不是逐个调 margin，而是让可伸缩区把余量吸收掉：
+  `.float-drop { flex: 1 1 auto; min-height: 0 }`，固定部分才是硬约束。
+  SVG 的尺寸交给 CSS（`width`/`height` 属性优先级低于任何 CSS 规则），别写死在 JSX 里。
+  照这个模式，以后改动才不会又把 `.float-later` 顶到窗口外。
+
+### 6.6 改图标只改 `scripts/gen-icons.mjs`，别手改 `resources/` 下的图
+
+`resources/` 里那 13 个图（`icon.png` / `icon.ico` / `tray-0..100.png`）全是生成产物。
+改了源脚本就跑 `pnpm gen:icons` 整体重出；手改单张图，下次生成就被覆盖。
+
+三条只在改图标时才会撞上的坑：
+
+- **`.ico` 平时根本跑不到。** 运行时用的是 `resources/icon.png`（窗口）和
+  `tray/*.png`（托盘），`.ico` 只在 electron-builder 打包成快捷方式时被系统读。
+  所以「dev 里看着没问题」证明不了 `.ico` 没问题 —— 它出错的几种方式
+  （`biHeight` 忘了写两倍、AND 掩码方向反了、目录项尺寸对不上）**全都不报错**，
+  只表现为打包后「快捷方式是个黑方块」或者糊成一团。
+  改完跑一次验收脚本 —— 它把磁盘上的字节解码回来、逐项核对规格，
+  再拼成「各尺寸 × 深浅两种底色」的对照图（含 16px 放大）：
+
+  ```bash
+  node scripts/gen-icons.mjs                                   # 先重新生成
+  node ~/.workbuddy/skills/electron-gui-verify/scripts/icon-sheet.mjs .
+  # 对照图落在 .workbuddy/verify/{icon,tray}-sheet.png，用 Read 看一眼再下结论
+  ```
+- **AND 掩码和 XOR 一样是自下而上存的**（同属一个 DIB）。现代 Windows 走 32bpp 的
+  alpha、根本不看这块，但忽略 alpha 的旧路径会退回它 —— 写成全 0 的话，那些地方
+  会把轮廓外的透明区域画成一个黑方块。正确写法是：透明处置 1。
+- **水滴轮廓别用 `halfW = r·√((y-apex)/(cy-apex))`。** 那个剖面在顶点处斜率无穷大，
+  会拉成一根细刺；细刺配上亮描边和一道平直液面，16px 下会被读成手提包而不是水滴。
+  用「顶端小圆 + 底端大圆 + 外公切线」那套。同理，托盘水滴别做太扁太胖 ——
+  顶端几乎没有尖的话它会变成一颗蛋。
+
 ---
 
 ## 7. 无头验证 UI 的做法
@@ -372,3 +415,29 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
   全是 0。要拿几何基准就用可见元素（例如 `.gauge-wall`）。
 - **新写的断言要先做变异测试**：故意把被验证的机制破坏掉（例如
   `removeAttribute('clip-path')`），确认断言会 FAIL。抓不住 bug 的断言等于没有。
+
+### 7.1 另一条路子：CDP 连真机（不改项目代码）
+
+上面那套要临时写主进程脚本；不想在仓库外维护一套 harness 时，可以给应用加
+`--remote-debugging-port`，用 Node 自带的 `fetch` + `WebSocket` 连上去量 DOM 和截图。
+好处是量的是**真窗口里的真页面**（含系统三键、原生窗口底色），不是伪造的 IPC 状态。
+现成脚本在技能 `electron-gui-verify/scripts/cdp-audit.cjs`（模式见该技能）。
+
+用隔离实例，别碰用户正在用的那份：`--user-data-dir=<仓库>/.workbuddy/tmp/userdata`
+（顺带隔离了单实例锁）。预置数据直接写 `<userData>/water-reminder.json`
+（`{version:1, logs:[{id,ml,ts,source}], settings:{...}}`）—— 要造「近 7 天历史」时
+只能这么干，`addDrink` 只能写当下。
+
+四个会误导判定的坑：
+
+- **`Stop-Process` 之后立刻重启，新实例会被单实例锁顶掉，你其实一直在跟旧实例说话。**
+  表现为「改了数据文件但应用读不到」，看着像 `store.load()` 有 bug。
+  判据：改完回读一次文件、启动后再回读一次，**文件没被动过**且进程 PID 变了才算真读到。
+- **`document.documentElement.scrollHeight` 量不到 `.content` 的滚动**（页面是固定
+  高度的 `.app` + 内层滚动容器），永远等于视口高，看着像「没有滚动」，实际首屏被滚走了。
+  直接量那个容器的 `scrollTop / scrollHeight / clientHeight`。
+- **`getBoundingClientRect()` 会把「故意画宽、靠 `clipPath` 裁掉」的 SVG 路径报成越界**
+  （液面波多画了两个周期）。查越界时先 `el.closest('[clip-path]')` 过滤。
+- **重载之后立刻查 `document.fonts.check()` 会得到 `false`**（`ignoreCache: true`
+  要重新解码字体，`status === 'loading'`）。别据此判定「内联字体没加载成功」。
+

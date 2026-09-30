@@ -1,9 +1,13 @@
 /*
  * 设计令牌 —— 主面板与小水滴共用一份。
  *
- * 方向：整个面板是一台「量水仪器」，主题就是水深。
- *   浅水（浅色）：矿物纸底 + 印刷水色，白天看是纸上的刻度
- *   深水（深色）：深渊底色 + 荧光青，晚上看是水里的读数
+ * 方向：液态玻璃水族馆（Liquid Glass Aquarium）。
+ *   整个应用是一个水族箱：页面底是水，卡片是浮在水里的玻璃，
+ *   背景有一层缓慢游走的焦散光（caustics），覆盖亮度跟着今日进度走。
+ *
+ *   夜（深色，设计基准）：深水底 + 玻璃面板 + 生物荧光青绿。
+ *                        玻璃边缘用「菲涅尔」描边 —— 上缘亮、下缘暗，像真玻璃。
+ *   昼（浅色）        ：白天的水族箱，水色退成极浅的青白，焦散变成淡影。
  *
  * 深浅两套只有一套机制：`prefers-color-scheme`。
  * 主进程把设置灌进 nativeTheme.themeSource，渲染层就自动跟着变 ——
@@ -12,49 +16,132 @@
  * `:root[data-theme]` 是渲染层显式写上的、权威的那一份；
  * 媒体查询里那份带 `:not([data-theme])`，只负责首帧兜底（React 挂载之前）。
  * 两份必须逐字一致，改一份就要改另一份。
+ *
+ * 强调色纪律：全站只有一个强调色 --accent（荧光青绿），只留给关键动作与达标态。
+ * --danger 是状态色不是强调色，仅用于错误。
  */
 
-:root {
-  /* ---- 浅水 ---- */
-  --bg: #e9eff1;
-  --surface: #fbfdfd;
-  --surface-2: #f1f6f7;
-  --line: #d7e1e4;
-  --line-strong: #b9c9ce;
-  --text: #0f2730;
-  --muted: #546c75;
-  --accent: #0a7186;
-  --accent-strong: #055668;
-  --accent-soft: #dceef2;
-  --on-accent: #ffffff;
-  --water-top: #56c4dc;
-  --water-bottom: #0c7891;
-  --good: #1d8f63;
-  --good-soft: #e2f2ea;
-  --danger: #b8483a;
-  --danger-soft: #fbece9;
-  --glass-glare: rgba(255, 255, 255, 0.62);
-  --shadow: 0 1px 2px rgba(15, 39, 48, 0.05), 0 10px 26px -18px rgba(15, 39, 48, 0.35);
-  /* 弹窗背后的压暗层：浅色底上用墨色压，别用纯黑（会和整体色调脱节） */
-  --overlay: rgba(15, 39, 48, 0.34);
-  --float-shadow: 0 10px 28px -14px rgba(15, 39, 48, 0.45);
-  --inset: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+/* ------------------------------------------------------------- 内联字体 */
 
-  /* ---- 尺寸与字体 ---- */
-  --radius: 12px;
-  --radius-sm: 8px;
+/*
+ * 拉丁展示字与等宽字直接进仓库，不走 CDN：
+ * 桌面应用可能完全离线，而且打包后 file:// 下的外链字体必然加载失败。
+ * 中文交给系统（Noto Sans SC → 思源黑体 → 微软雅黑），完整 CJK 字体动辄 10MB，
+ * 内联进来不划算。
+ *
+ * 两个字都是可变字体（Bricolage 有 wght + wdth 两轴），所以权重/字宽由 CSS 现调，
+ * 不需要按字重分别打包文件。
+ */
+@font-face {
+  font-family: 'Bricolage Grotesque Variable';
+  font-style: normal;
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
+  font-display: swap;
+  src: url('./assets/fonts/bricolage-grotesque-var.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./assets/fonts/jetbrains-mono-var.woff2') format('woff2-variations');
+}
+
+:root {
+  /* ------------------------------------------------------------ 字体 */
+  /* 展示字：拉丁/数字走 Bricolage，中文落到系统黑体 */
+  --font-display: 'Bricolage Grotesque Variable', 'Noto Sans SC', 'Source Han Sans SC',
+    'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  /* 正文：中文优先，拉丁兜底 */
+  --font-body: 'Noto Sans SC', 'Source Han Sans SC', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    'Segoe UI', sans-serif;
+  /* 数据：时间戳、毫秒数、版本号 —— 等宽才能竖向对齐 */
+  --font-data: 'JetBrains Mono Variable', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  /* -------------------------------------------------------- 字阶 1.25 */
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12.5px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 20px;
+  --fs-xl: 26px;
+  --fs-2xl: 38px;
+  --fs-hero: 60px;
+
+  /* ------------------------------------------------------------ 间距 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 40px;
+  --sp-7: 64px;
+
+  /* ------------------------------------------------------------ 圆角 */
+  /* 有机方向：圆角偏大且分级明确，直角只留给刻度尺一类的结构件 */
+  --r-1: 8px;
+  --r-2: 12px;
+  --r-3: 18px;
+  --r-4: 26px;
+  --r-pill: 999px;
+
+  /* ------------------------------------------------------------ 动效 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 160ms;
+  --dur-base: 320ms;
+  --dur-slow: 640ms;
+
   /*
-   * 标题栏（.topbar 那条）的高度。必须和主进程的 TITLEBAR_HEIGHT 逐像素一致：
+   * 标题栏（.titlebar 那条）的高度。必须和主进程的 TITLEBAR_HEIGHT 逐像素一致：
    * 系统三键的高度与纵向位置由主进程那份决定，这里只管页面画多高，
    * 两边对不上就会出现「按钮浮在标题栏上半截」的错位。改一处就得改另一处。
    */
   --titlebar-h: 34px;
   /* 三键要占掉的横向空间（Windows 上每键 46px）：标题栏里的控件不能摆进这块 */
   --titlebar-controls-w: 152px;
-  --font-body: 'Microsoft YaHei UI', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  /* Bahnschrift 是 Windows 自带的 DIN 系字体：刻度、读数、标题都走它，读起来像仪表 */
-  --font-instrument: Bahnschrift, 'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
-  --font-data: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  /* ================================================== 昼 · 白天的水族箱 */
+  --glass-tint: 255 255 255;
+  --bg: #e8f1f3;
+  /* 水体：页面底那层缓慢的纵向渐变 */
+  --water-1: #dcebee;
+  --water-2: #eef6f8;
+  /* 玻璃面板：半透明白，底下透出水色 */
+  --surface: rgba(255, 255, 255, 0.66);
+  /* 不透明等价色：原生对话框底、浮窗不透明模式、以及任何不能透视的地方 */
+  --surface-solid: #fbffff;
+  --surface-2: #eef6f8;
+  --line: rgba(10, 74, 92, 0.14);
+  --line-strong: rgba(10, 74, 92, 0.3);
+  --text: #062730;
+  --muted: #4e6d78;
+  --accent: #07796a;
+  --accent-strong: #045a4f;
+  --accent-soft: #d5eee9;
+  --on-accent: #ffffff;
+  --water-top: #4fc9e0;
+  --water-bottom: #08566e;
+  --good: #07796a;
+  --good-soft: #d9f0ea;
+  --danger: #b8442a;
+  --danger-soft: #fbe9e4;
+  /* 焦散光：两层径向渐变，透明度比深色低一档，白天不该抢戏 */
+  --caustic-1: rgba(60, 170, 200, 0.24);
+  --caustic-2: rgba(40, 190, 165, 0.17);
+  /* 菲涅尔描边：玻璃上缘的高光 */
+  --glare: rgba(255, 255, 255, 0.9);
+  --glass-glare: rgba(255, 255, 255, 0.72);
+  --shadow-1: 0 1px 2px rgba(8, 52, 66, 0.06), 0 4px 14px -8px rgba(8, 52, 66, 0.2);
+  --shadow-2: 0 10px 30px -16px rgba(8, 52, 66, 0.3);
+  --shadow-3: 0 26px 70px -28px rgba(8, 52, 66, 0.36);
+  /* 弹窗背后的压暗层：浅色底上用墨青压，别用纯黑（会和整体色调脱节） */
+  --overlay: rgba(6, 39, 48, 0.34);
+  --float-shadow: 0 14px 34px -14px rgba(8, 52, 66, 0.4);
+  --inset: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 
   color-scheme: light;
 }
@@ -62,28 +149,37 @@
 /* 首帧兜底：React 还没写 data-theme 时，跟着系统走 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #06161c;
-    --surface: #0c2530;
-    --surface-2: #113039;
-    --line: #20454f;
-    --line-strong: #2f5b68;
-    --text: #e2f0f1;
-    --muted: #86a5ab;
-    --accent: #4fd4e2;
-    --accent-strong: #86e8f2;
-    --accent-soft: #16414f;
-    --on-accent: #04212a;
-    --water-top: #7ceaf5;
-    --water-bottom: #0d6277;
-    --good: #46cf90;
-    --good-soft: #0e2e26;
-    --danger: #ff8f7a;
-    --danger-soft: #3a1e19;
-    --glass-glare: rgba(180, 240, 255, 0.14);
-    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 30px -20px rgba(0, 0, 0, 0.9);
-  --overlay: rgba(2, 9, 12, 0.62);
-    --float-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.75);
-    --inset: inset 0 1px 0 rgba(150, 230, 245, 0.07);
+    --glass-tint: 150 230 245;
+    --bg: #03080e;
+    --water-1: #061620;
+    --water-2: #0a2632;
+    --surface: rgba(18, 46, 58, 0.55);
+    --surface-solid: #0a212b;
+    --surface-2: #0d2c38;
+    --line: rgba(146, 226, 245, 0.13);
+    --line-strong: rgba(146, 226, 245, 0.28);
+    --text: #e4f3f5;
+    --muted: #7e9aa5;
+    --accent: #4ff0c8;
+    --accent-strong: #86fadd;
+    --accent-soft: rgba(79, 240, 200, 0.13);
+    --on-accent: #03231c;
+    --water-top: #6fe9f5;
+    --water-bottom: #07546f;
+    --good: #4ff0c8;
+    --good-soft: rgba(79, 240, 200, 0.12);
+    --danger: #ff8f6b;
+    --danger-soft: rgba(255, 143, 107, 0.14);
+    --caustic-1: rgba(30, 166, 200, 0.32);
+    --caustic-2: rgba(62, 224, 192, 0.22);
+    --glare: rgba(190, 245, 255, 0.2);
+    --glass-glare: rgba(180, 240, 255, 0.1);
+    --shadow-1: 0 2px 8px rgba(0, 8, 14, 0.5);
+    --shadow-2: 0 12px 32px -14px rgba(0, 8, 14, 0.8);
+    --shadow-3: 0 26px 70px -24px rgba(0, 8, 14, 0.92);
+    --overlay: rgba(1, 5, 9, 0.66);
+    --float-shadow: 0 16px 38px -14px rgba(0, 8, 14, 0.85);
+    --inset: inset 0 1px 0 rgba(150, 230, 245, 0.09);
 
     color-scheme: dark;
   }
@@ -91,28 +187,37 @@
 
 /* 渲染层显式指定时以它为准（必须与上面那份逐字一致） */
 :root[data-theme='dark'] {
-  --bg: #06161c;
-  --surface: #0c2530;
-  --surface-2: #113039;
-  --line: #20454f;
-  --line-strong: #2f5b68;
-  --text: #e2f0f1;
-  --muted: #86a5ab;
-  --accent: #4fd4e2;
-  --accent-strong: #86e8f2;
-  --accent-soft: #16414f;
-  --on-accent: #04212a;
-  --water-top: #7ceaf5;
-  --water-bottom: #0d6277;
-  --good: #46cf90;
-  --good-soft: #0e2e26;
-  --danger: #ff8f7a;
-  --danger-soft: #3a1e19;
-  --glass-glare: rgba(180, 240, 255, 0.14);
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 30px -20px rgba(0, 0, 0, 0.9);
-  --overlay: rgba(2, 9, 12, 0.62);
-  --float-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.75);
-  --inset: inset 0 1px 0 rgba(150, 230, 245, 0.07);
+  --glass-tint: 150 230 245;
+  --bg: #03080e;
+  --water-1: #061620;
+  --water-2: #0a2632;
+  --surface: rgba(18, 46, 58, 0.55);
+  --surface-solid: #0a212b;
+  --surface-2: #0d2c38;
+  --line: rgba(146, 226, 245, 0.13);
+  --line-strong: rgba(146, 226, 245, 0.28);
+  --text: #e4f3f5;
+  --muted: #7e9aa5;
+  --accent: #4ff0c8;
+  --accent-strong: #86fadd;
+  --accent-soft: rgba(79, 240, 200, 0.13);
+  --on-accent: #03231c;
+  --water-top: #6fe9f5;
+  --water-bottom: #07546f;
+  --good: #4ff0c8;
+  --good-soft: rgba(79, 240, 200, 0.12);
+  --danger: #ff8f6b;
+  --danger-soft: rgba(255, 143, 107, 0.14);
+  --caustic-1: rgba(30, 166, 200, 0.32);
+  --caustic-2: rgba(62, 224, 192, 0.22);
+  --glare: rgba(190, 245, 255, 0.2);
+  --glass-glare: rgba(180, 240, 255, 0.1);
+  --shadow-1: 0 2px 8px rgba(0, 8, 14, 0.5);
+  --shadow-2: 0 12px 32px -14px rgba(0, 8, 14, 0.8);
+  --shadow-3: 0 26px 70px -24px rgba(0, 8, 14, 0.92);
+  --overlay: rgba(1, 5, 9, 0.66);
+  --float-shadow: 0 16px 38px -14px rgba(0, 8, 14, 0.85);
+  --inset: inset 0 1px 0 rgba(150, 230, 245, 0.09);
 
   color-scheme: dark;
 }

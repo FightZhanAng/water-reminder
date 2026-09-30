@@ -17,7 +17,7 @@ body {
 
 body.float-body {
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: var(--fs-base);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -29,10 +29,10 @@ body.float-body {
 
 /* 静态兜底文案：脚本没跑起来时也得看得清，且要跟着主题走 */
 .boot {
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--fs-sm);
+  line-height: 1.75;
   color: var(--text);
-  padding: 14px;
+  padding: var(--sp-3);
 }
 
 .boot-hint {
@@ -50,50 +50,134 @@ body.float-body {
   padding: 0;
 }
 
-.float-root.is-opaque .float-card {
-  border-radius: 0;
-  border: 0;
-  box-shadow: none;
-}
-
+/*
+ * 这里刻意不用 backdrop-filter。
+ * 透明窗口下它要拿桌面当背景去采样，Windows 上既贵又常常失效，
+ * 结果就是「卡片边缘有一圈糊掉的桌面」或者干脆整块不合成。
+ * 玻璃感改由「半透明渐变 + 菲涅尔描边 + 外发光」拼出来，纯合成层，稳。
+ */
 .float-card {
   position: relative;
   height: 100%;
-  padding: 10px 12px 12px;
-  border-radius: 18px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  box-shadow: var(--float-shadow);
+  padding: 8px var(--sp-3) 10px;
+  border-radius: var(--r-4);
+  border: 1px solid var(--line-strong);
+  background:
+    radial-gradient(120% 90% at 50% -12%, var(--glare), transparent 58%),
+    linear-gradient(180deg, var(--surface-solid), color-mix(in srgb, var(--surface-solid) 82%, var(--water-bottom)));
+  box-shadow: var(--float-shadow), var(--inset);
   display: flex;
   flex-direction: column;
   align-items: center;
   -webkit-app-region: drag;
 }
 
+/* 水滴背后的一圈荧光：它浮在桌面上，得有存在感 */
+.float-card::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(60% 45% at 50% 32%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%);
+  opacity: 0.7;
+}
+
+.float-root.is-opaque .float-card {
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.float-root.is-opaque .float-card::after {
+  display: none;
+}
+
 .float-grip {
   width: 30px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--r-pill);
   background: var(--line-strong);
-  margin-bottom: 4px;
+  margin-bottom: 1px;
   flex: 0 0 auto;
 }
 
+/*
+ * 水滴区吃掉剩余高度。窗口只有 200×236，内容一旦比它高，
+ * 最下面的「稍后再说」就会被窗口边裁掉（第一版实测少了 7px）。
+ * 这里让水滴自己伸缩、把富余空间吸收掉，尺寸由 CSS 定而不是 SVG 属性，
+ * 顺带在空间不够时优先压水滴、保住按钮。
+ */
 .float-drop {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   -webkit-app-region: drag;
   animation: bob 3.4s ease-in-out infinite;
+  filter: drop-shadow(0 10px 20px color-mix(in srgb, var(--water-bottom) 55%, transparent));
+}
+
+.float-drop svg {
+  display: block;
+  width: 56px;
+  height: 70px;
+  flex: 0 0 auto;
 }
 
 .drop-outline {
-  fill: var(--surface-2);
+  fill: color-mix(in srgb, var(--surface-2) 72%, transparent);
 }
 
 .drop-water {
-  fill: var(--water-top);
+  fill: url(#dropWater);
+  transition: fill var(--dur-base) var(--ease-soft);
 }
 
 .drop-water.is-done {
-  fill: var(--good);
+  fill: url(#dropWaterDone);
+}
+
+.drop-stop-top {
+  stop-color: var(--water-top);
+}
+
+.drop-stop-mid {
+  stop-color: color-mix(in srgb, var(--water-top) 42%, var(--water-bottom));
+}
+
+.drop-stop-bottom {
+  stop-color: var(--water-bottom);
+}
+
+/*
+ * 达标的水：从亮青渐变到强调色，而不是直接铺满强调色。
+ * 铺满时填充(#4ff0c8)和描边(--accent)同色，水滴轮廓会整个糊掉 ——
+ * 上半截比描边亮一档，形状才留得住。
+ */
+.drop-stop-done {
+  stop-color: color-mix(in srgb, var(--water-top) 62%, var(--accent));
+}
+
+/* 液面波：位移量必须等于 DROP_WAVE_PERIOD，一格位移后正好接回原样 */
+.drop-wave {
+  fill: color-mix(in srgb, var(--water-top) 68%, white);
+  animation: drop-tide 4.5s linear infinite;
+}
+
+.drop-wave.is-done {
+  fill: color-mix(in srgb, var(--accent) 74%, white);
+}
+
+@keyframes drop-tide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-32px);
+  }
 }
 
 .drop-stroke {
@@ -104,17 +188,20 @@ body.float-body {
 }
 
 .float-title {
-  margin: 4px 0 0;
-  font-family: var(--font-instrument);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: var(--fs-base);
+  font-weight: 650;
+  font-stretch: 92%;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
 }
 
 .float-sub {
-  margin: 2px 0 0;
-  font-family: var(--font-instrument);
-  font-size: 11px;
+  margin-top: 2px;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -124,20 +211,37 @@ body.float-body {
   gap: 6px;
   width: 100%;
   margin-top: 10px;
+  flex: 0 0 auto;
   -webkit-app-region: no-drag;
 }
 
 .float-btn {
+  position: relative;
+  overflow: hidden;
   flex: 1;
   min-width: 0;
+  min-height: 30px;
   padding: 7px 0;
   border: 1px solid var(--line-strong);
-  border-radius: 9px;
-  background: var(--surface-2);
-  font-family: var(--font-instrument);
-  font-size: 12px;
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  transition: background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-out);
+}
+
+.float-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, var(--glare) 50%, transparent 65%);
+  transform: translateX(-130%);
+  transition: transform var(--dur-slow) var(--ease-out);
+  pointer-events: none;
 }
 
 .float-btn:hover {
@@ -145,10 +249,19 @@ body.float-body {
   border-color: var(--accent);
 }
 
+.float-btn:hover::after {
+  transform: translateX(130%);
+}
+
+.float-btn:active {
+  transform: scale(0.97);
+}
+
 .float-btn.is-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
+  box-shadow: 0 0 16px -4px var(--accent);
 }
 
 .float-btn.is-primary:hover {
@@ -157,35 +270,38 @@ body.float-body {
 }
 
 .float-fatal {
-  margin: 8px 0 0;
-  font-size: 11px;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-2xs);
   line-height: 1.6;
   color: var(--danger);
   word-break: break-all;
 }
 
 .float-later {
-  margin-top: 8px;
+  margin-top: 5px;
+  padding: 2px 6px;
   border: 0;
   background: none;
-  padding: 2px 6px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
   color: var(--muted);
   cursor: pointer;
+  flex: 0 0 auto;
   -webkit-app-region: no-drag;
+  transition: color var(--dur-fast) var(--ease-soft);
 }
 
 .float-later:hover {
-  color: var(--text);
+  color: var(--accent);
 }
 
 @keyframes pop {
   0% {
-    transform: scale(0.92) translateY(10px);
+    transform: scale(0.9) translateY(12px);
     opacity: 0;
   }
-  60% {
-    transform: scale(1.03) translateY(0);
+  62% {
+    transform: scale(1.035) translateY(-2px);
     opacity: 1;
   }
   100% {
@@ -204,15 +320,16 @@ body.float-body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .float-drop {
-    animation: none;
-  }
-  .float-card.is-popping {
-    animation: none;
-  }
+.float-card.is-popping {
+  animation: pop 0.42s cubic-bezier(0.22, 1.2, 0.36, 1);
 }
 
-.float-card.is-popping {
-  animation: pop 0.38s cubic-bezier(0.22, 1.2, 0.36, 1);
+/* 降级：直接取消动画，元素以最终状态呈现 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

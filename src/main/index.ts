@@ -93,10 +93,10 @@ let activeNotification: Notification | null = null
  * 这个值决定「窗口出现到页面首帧之间」闪什么颜色，
  * 所以必须和 tokens.css 里的 --bg 对齐 —— 主进程读不到 CSS，只能各写一份。
  */
-const WINDOW_BG = { light: '#e9eff1', dark: '#06161c' } as const
+const WINDOW_BG = { light: '#e8f1f3', dark: '#03080e' } as const
 
-/** 浮窗不透明模式下整块被卡片铺满，底色对齐 --surface 而不是 --bg */
-const FLOAT_BG = { light: '#fbfdfd', dark: '#0c2530' } as const
+/** 浮窗不透明模式下整块被卡片铺满，底色对齐 --surface-solid 而不是 --bg */
+const FLOAT_BG = { light: '#fbffff', dark: '#0a212b' } as const
 
 /**
  * 自绘标题栏（Windows 的 Window Controls Overlay）。
@@ -112,7 +112,7 @@ const FLOAT_BG = { light: '#fbfdfd', dark: '#0c2530' } as const
  * （页面里就是 .topbar，底色跟着 --surface 走），这里只管三键符号的颜色，
  * 因为它画在网页之上，CSS 够不着。主题一变就调 setTitleBarOverlay 重新着色。
  */
-const TITLEBAR = { light: '#0f2730', dark: '#e2f0f1' } as const
+const TITLEBAR = { light: '#062730', dark: '#e4f3f5' } as const
 
 /**
  * 标题栏高度。渲染层的 `--titlebar-h` 必须和它一致：

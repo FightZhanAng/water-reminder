@@ -1,6 +1,6 @@
 @import './tokens.css';
 
-/* ------------------------------------------------------------------ 基础 */
+/* ============================================================ 基础 */
 
 * {
   box-sizing: border-box;
@@ -15,11 +15,13 @@ body,
 body {
   margin: 0;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: var(--fs-base);
+  line-height: 1.7;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color var(--dur-base) var(--ease-soft),
+    color var(--dur-base) var(--ease-soft);
 }
 
 button,
@@ -33,6 +35,16 @@ input {
 :where(button, input, a, [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd {
+  margin: 0;
 }
 
 /* 主题切换时让底色平滑过渡，别硬闪 */
@@ -45,17 +57,223 @@ input {
 .field-control input,
 .quick-custom input,
 .log-source,
-.chart-bar {
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+.level-fill,
+.theme-chip {
+  transition: background-color var(--dur-base) var(--ease-soft),
+    border-color var(--dur-base) var(--ease-soft), color var(--dur-base) var(--ease-soft);
 }
 
-/* ------------------------------------------------------------ 布局骨架 */
+/* ====================================================== 氛围层（水与光） */
 
+/*
+ * 整个应用是一个水族箱。氛围层铺满窗口、永远在最底下：
+ *   1. 水体纵向渐变 —— 上方透光、下方沉积
+ *   2. 两层焦散光斑 —— 缓慢反向游走，是这套设计最容易被记住的东西
+ * 只动 transform / opacity，不触发布局。
+ */
 .app {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   height: 100%;
+  background: linear-gradient(180deg, var(--water-2) 0%, var(--water-1) 55%, var(--water-1) 100%);
+  overflow: hidden;
 }
+
+.app::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42rem 30rem at 18% 8%, var(--caustic-1), transparent 62%),
+    radial-gradient(36rem 26rem at 88% 30%, var(--caustic-2), transparent 60%),
+    radial-gradient(30rem 22rem at 45% 100%, var(--caustic-1), transparent 65%);
+  filter: blur(6px);
+  animation: caustics 47s ease-in-out infinite alternate;
+}
+
+/*
+ * 颗粒层。透明度压到 4% 并且用 overlay 混合 ——
+ * 目的是让纯色玻璃面有「水里的浮尘」质感，不是让人看见噪点。
+ * 压在这层之上会让文字略微发毛，所以放在内容之下、氛围之上。
+ */
+.app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@keyframes caustics {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2.5%, -2%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-2%, 2.5%, 0) scale(1.03);
+  }
+}
+
+/* 所有结构层都要浮在氛围之上 */
+.titlebar,
+.topbar,
+.content,
+.statusbar {
+  position: relative;
+  z-index: 2;
+}
+
+/* ========================================================== 玻璃面板 */
+
+/*
+ * 玻璃的四个特征，缺一个就露馅：
+ *   1. 半透明底 —— 透出下面的水色
+ *   2. 背景模糊 —— 焦散光斑在卡片后面糊开
+ *   3. 菲涅尔描边 —— 上缘亮、下缘暗（.card::before）
+ *   4. 环境色阴影 —— 不是纯黑，是带水的深青
+ */
+.card {
+  position: relative;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--surface);
+  backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: var(--shadow-2), var(--inset);
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--glare), transparent 26%);
+  opacity: 0.45;
+  -webkit-mask-image: linear-gradient(180deg, #000, transparent 32%);
+  mask-image: linear-gradient(180deg, #000, transparent 32%);
+}
+
+.card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 悬停：整块玻璃轻轻上浮，描边亮一档 —— 惊喜但不喧哗 */
+.card {
+  transition: transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-soft);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), var(--inset);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+/*
+ * 卡头分两块：左边是可点的折叠区（撑满剩余宽度，「展开/收起」照样贴右），
+ * 右边是常驻的项目主页入口 —— 折叠区不能直接当容器用，
+ * 按钮里再嵌一个按钮是非法的 HTML。
+ */
+.card-head-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.card-head-toggle:hover .eyebrow {
+  color: var(--text);
+}
+
+/*
+ * 分区标签。刻度竖线是这个界面反复出现的结构件 ——
+ * 面板上的分区、量筒上的分度、横向水位尺，用的是同一种记号。
+ */
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.eyebrow::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-soft);
+}
+
+.card-sub {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.kbd {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.empty {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  padding: var(--sp-2) 0 var(--sp-1);
+}
+
+/* ========================================================= 标题栏 / 工具栏 */
 
 /*
  * 标题栏 —— 窗口最顶上那一条。
@@ -66,18 +284,15 @@ input {
  *   2. 高度锁死 --titlebar-h，和主进程给的 overlay 高度对齐，系统三键才落在这一条正中
  *   3. 右侧留出三键的宽度，别让任何东西躲到三键底下
  *
- * z-index 是为了让下拉菜单浮在下面的工具栏之上。
+ * 底色是透明的：这一条直接泡在水里，和下面的工具栏连成一片玻璃。
  */
 .titlebar {
-  position: relative;
-  z-index: 10;
+  z-index: 12;
   display: flex;
   align-items: center;
   height: var(--titlebar-h);
-  padding: 0 8px;
+  padding: 0 var(--sp-2);
   padding-right: var(--titlebar-controls-w);
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
   user-select: none;
 }
@@ -92,43 +307,64 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--surface);
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-3);
   border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(14px) saturate(150%);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--sp-2);
   min-width: 0;
   /* 窗口缩到最小时标题文字要自己裁掉，不能溢出去压到右侧的操作按钮上 */
   overflow: hidden;
 }
 
+/*
+ * 水滴标装在一个玻璃小格里：它同时是品牌标和水位指示 ——
+ * 达标时整格转成荧光青绿并发光。
+ */
 .brand-mark {
-  display: flex;
+  display: grid;
+  place-items: center;
   flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: var(--accent-soft);
+  box-shadow: var(--inset);
+  transition: background-color var(--dur-base) var(--ease-soft),
+    box-shadow var(--dur-base) var(--ease-soft), border-color var(--dur-base) var(--ease-soft);
 }
 
 .brand-mark svg {
-  width: 15px;
-  height: 19px;
+  width: 13px;
+  height: 17px;
   display: block;
   fill: var(--accent);
+  transition: fill var(--dur-base) var(--ease-soft);
+}
+
+.brand-mark.is-done {
+  border-color: transparent;
+  background: var(--good);
+  box-shadow: 0 0 16px -2px var(--good);
 }
 
 .brand-mark.is-done svg {
-  fill: var(--good);
+  fill: var(--on-accent);
 }
 
 .topbar h1 {
-  margin: 0;
-  font-family: var(--font-instrument);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  font-weight: 620;
+  font-stretch: 92%;
+  letter-spacing: -0.015em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -137,11 +373,11 @@ input {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   flex: 0 0 auto;
 }
 
-/* -------------------------------------------------------------- 关于菜单 */
+/* ========================================================== 关于菜单 */
 
 .menu {
   position: relative;
@@ -155,17 +391,17 @@ input {
   gap: 5px;
   padding: 4px 9px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-1);
   background: none;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
 }
 
 .menu-trigger:hover,
 .menu-trigger[aria-expanded='true'] {
-  background: var(--surface-2);
+  background: var(--accent-soft);
   color: var(--text);
 }
 
@@ -181,15 +417,23 @@ input {
 
 .menu-list {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   z-index: 30;
-  min-width: 172px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  min-width: 178px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-3);
+  animation: menu-in var(--dur-base) var(--ease-out) backwards;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
 }
 
 .menu-item {
@@ -198,15 +442,15 @@ input {
   justify-content: space-between;
   gap: 14px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-1);
   background: none;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
 }
 
 .menu-item:hover:not(:disabled) {
@@ -228,19 +472,19 @@ input {
 
 /* 右对齐的次要信息（版本号、更新状态）：等宽数字，扫一眼就能比 */
 .menu-item-hint {
-  font-family: var(--font-instrument);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
   color: var(--muted);
   white-space: nowrap;
 }
 
 .menu-sep {
   height: 1px;
-  margin: 4px 6px;
+  margin: 5px 6px;
   background: var(--line);
 }
 
-/* -------------------------------------------------------------- 版本弹窗 */
+/* ============================================================ 版本弹窗 */
 
 .overlay {
   position: fixed;
@@ -248,54 +492,83 @@ input {
   z-index: 40;
   display: grid;
   place-items: center;
-  padding: 18px;
+  padding: var(--sp-4);
   background: var(--overlay);
+  backdrop-filter: blur(3px);
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .dialog {
   width: 100%;
-  max-width: 320px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  max-width: 330px;
+  padding: var(--sp-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-3);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-3);
+  animation: dialog-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
 }
 
 .dialog-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.dialog-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--accent-soft);
 }
 
 .dialog-mark svg {
-  width: 16px;
-  height: 20px;
+  width: 15px;
+  height: 19px;
   display: block;
   fill: var(--accent);
 }
 
 .dialog-title {
-  margin: 0;
-  font-family: var(--font-instrument);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  font-weight: 620;
+  font-stretch: 92%;
+  letter-spacing: -0.015em;
 }
 
 .dialog-sub {
-  margin: 2px 0 0;
+  margin-top: 1px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .about-list {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 7px 12px;
-  margin: 0 0 16px;
-  font-size: 12.5px;
+  gap: 8px var(--sp-3);
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
 }
 
 .about-list dt {
@@ -304,19 +577,88 @@ input {
 }
 
 .about-list dd {
-  margin: 0;
   color: var(--text);
-  font-family: var(--font-instrument);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  align-self: center;
 }
+
+/* ============================================================== 内容区 */
 
 .content {
   flex: 1;
   overflow-y: auto;
-  padding: 14px;
+  overflow-x: hidden;
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-3);
+  scrollbar-gutter: stable;
+}
+
+/*
+ * 编排好的入场序列：卡片逐块上浮，间隔 70ms。
+ * `backwards` 是必须的 —— 没有它，延迟期间元素会以最终状态先画一帧，
+ * 然后才「跳」回起点重放，看着像闪了一下。
+ *
+ * `flex: none` 也不是可选项：`.content` 是纵向 flex 容器，弹性项默认允许收缩，
+ * 而 `overflow: hidden` 的弹性项其自动最小尺寸是 0（不是内容高度）。
+ * 于是带 `overflow: hidden` 的水位卡会把整列的收缩量全吞下去、塌成一条 1px 的线
+ * —— 这个只有真机截图才看得出来，类型检查和构建都是绿的。
+ * 内容区本来就是滚动容器，卡片该保持自然高度、溢出交给滚动。
+ */
+.content > * {
+  flex: none;
+  animation: rise var(--dur-slow) var(--ease-out) backwards;
+}
+
+.content > *:nth-child(1) {
+  animation-delay: 60ms;
+}
+.content > *:nth-child(2) {
+  animation-delay: 130ms;
+}
+.content > *:nth-child(3) {
+  animation-delay: 200ms;
+}
+.content > *:nth-child(4) {
+  animation-delay: 270ms;
+}
+.content > *:nth-child(5) {
+  animation-delay: 340ms;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.titlebar,
+.topbar,
+.statusbar {
+  animation: fade-slide var(--dur-slow) var(--ease-out) backwards;
+}
+
+.topbar {
+  animation-delay: 40ms;
+}
+
+@keyframes fade-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* 静态兜底文案：脚本没跑起来时也得看得清，且要跟着主题走 */
+.loading,
+.boot {
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  line-height: 1.75;
+  color: var(--text);
 }
 
 .loading {
@@ -327,135 +669,130 @@ input {
   color: var(--muted);
 }
 
-/* 静态兜底文案：脚本没跑起来时也得看得清，且要跟着主题走 */
 .boot {
-  font-family: var(--font-body);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--text);
-  padding: 16px;
+  padding: var(--sp-4);
 }
 
 .boot-hint {
   color: var(--muted);
 }
 
-/* ---------------------------------------------------------------- 卡片 */
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow), var(--inset);
-  padding: 14px;
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-}
+/* ======================================================= 水位区（破格） */
 
 /*
- * 卡头分两块：左边是可点的折叠区（撑满剩余宽度，「展开/收起」照样贴右），
- * 右边是常驻的项目主页入口 —— 折叠区不能直接当容器用，
- * 按钮里再嵌一个按钮是非法的 HTML。
+ * 水位卡片是这一屏的主视觉，两个破格动作：
+ *   1. 顶部的水位尺通栏铺满，故意冲出卡片内边距（左边缘直接贴到卡片圆角）
+ *   2. 量筒向左出血，视觉上「探出」内容列
+ * 卡片自己不留内边距，改由 .hero-body 负责，这样尺子才能真正贴边。
  */
-.card-head-toggle {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+.card.is-hero {
   padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  text-align: left;
-}
-
-.card-head-toggle:hover .eyebrow {
-  color: var(--text);
+  overflow: hidden;
 }
 
 /*
- * 分区标签：小一号的仪表字 + 一道刻度竖线。
- * 刻度线是这个界面反复出现的结构件 —— 面板上的分区、量筒上的分度，
- * 用的是同一种记号，读起来才知道它们是同一套语言。
+ * 横向水位尺：把量筒的纵向刻度语言横向再说一遍。
+ * 进度用一条发光的水线填充，右端写着百分比。
  */
-.eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0;
-  font-family: var(--font-instrument);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
-  color: var(--muted);
-  transition: color 0.2s ease;
+.hero-rail {
+  position: relative;
+  height: 30px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.06), transparent);
+  overflow: hidden;
 }
 
-.eyebrow::before {
-  content: '';
-  flex: 0 0 auto;
+.hero-rail-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--water-bottom), var(--water-top));
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+.hero-rail.is-done .hero-rail-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--water-bottom)), var(--accent));
+  box-shadow: 0 0 22px -2px var(--accent);
+}
+
+/* 水位前缘：一道细亮线，左侧填充的切边就不显生硬 */
+.hero-rail-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   width: 2px;
-  height: 11px;
-  border-radius: 1px;
-  background: var(--accent);
+  margin-left: -1px;
+  background: color-mix(in srgb, white 68%, var(--water-top));
+  box-shadow: 0 0 10px 1px var(--water-top);
+  transition: left var(--dur-slow) var(--ease-out);
 }
 
-.card-sub {
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.hint {
+/* 尺子上的分度线：每 10%，逢 25 加长 —— 和量筒同一套记号 */
+.hero-rail-ticks {
+  position: absolute;
+  inset: 0;
   display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 11px 0 0;
-  font-size: 11.5px;
-  color: var(--muted);
+  justify-content: space-between;
+  padding: 0 1px;
+  pointer-events: none;
 }
 
-.kbd {
-  font-family: var(--font-data);
-  font-size: 10.5px;
-  padding: 2px 6px;
+.hero-rail-tick {
+  width: 1px;
+  align-self: flex-end;
+  height: 7px;
+  background: var(--line-strong);
+}
+
+.hero-rail-tick.is-major {
+  height: 12px;
+  background: var(--muted);
+  opacity: 0.6;
+}
+
+/*
+ * 百分比标签做成一颗小玻璃钉，而不是靠混合模式去「自适应」底色。
+ * 试过 `mix-blend-mode: difference`：它在深色轨道上读作白字（好），
+ * 但在达标的薄荷色填充上差值出暗红（#B00F37），既难看又不到 3:1。
+ * 实心小钉在两种底色上都稳，也顺带成了这套仪表语言里的一个构件。
+ */
+.hero-rail-label {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 7px;
   border: 1px solid var(--line);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  background: var(--surface-2);
+  border-radius: var(--r-pill);
+  background: var(--surface-solid);
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
   color: var(--text);
-  white-space: nowrap;
+  pointer-events: none;
 }
-
-.empty {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-/* -------------------------------------------------------------- 水位计 */
 
 .hero-body {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-4) var(--sp-4) var(--sp-2);
 }
 
+/* 量筒向左出血：贴到卡片内缘，视觉上探出内容列 */
 .gauge {
   display: block;
   flex: 0 0 auto;
+  margin-left: -4px;
+  filter: drop-shadow(0 10px 18px rgba(0, 8, 14, 0.28));
 }
 
+/*
+ * 空管里那点玻璃。必须是极淡的一层，不能给实色 ——
+ * 实色填满之后上半截看着就像「本来就有水」，与下半截的对比反而丢了。
+ */
 .gauge-glass {
-  fill: var(--surface-2);
+  fill: color-mix(in srgb, var(--glass-glare) 34%, transparent);
 }
 
 .gauge-wall {
@@ -475,9 +812,8 @@ input {
 
 .gauge-scale {
   fill: var(--muted);
-  font-family: var(--font-instrument);
-  font-size: 9.5px;
-  font-weight: 600;
+  font-family: var(--font-data);
+  font-size: 9px;
   letter-spacing: 0.02em;
 }
 
@@ -485,8 +821,17 @@ input {
   stop-color: var(--water-top);
 }
 
+/* 中段色由两端现混，不另开令牌：深浅两套各自算，主题一变自动跟着走 */
+.gauge-stop-mid {
+  stop-color: color-mix(in srgb, var(--water-top) 42%, var(--water-bottom));
+}
+
 .gauge-stop-bottom {
   stop-color: var(--water-bottom);
+}
+
+.gauge-stop-done-top {
+  stop-color: var(--accent);
 }
 
 .gauge-stop-glare {
@@ -499,11 +844,11 @@ input {
 
 /* 水位变化时整筒水一起补间，液面和指针不会一个动一个跳 */
 .gauge-move {
-  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--dur-slow) var(--ease-out);
 }
 
 .gauge-water.is-done {
-  fill: var(--good);
+  fill: url(#gauge-done);
 }
 
 /* 液面：一条缓慢漂移的波。周期与 WAVE_PERIOD 对齐，位移一格正好无缝循环 */
@@ -513,17 +858,20 @@ input {
 }
 
 .gauge-wave.is-done {
-  fill: color-mix(in srgb, var(--good) 72%, white);
+  fill: color-mix(in srgb, var(--accent) 74%, white);
 }
 
+/* 竖向高光条：只负责「玻璃有厚度」，不能强到被当成一根柱子 */
 .gauge-glare {
   fill: url(#gauge-glare);
+  opacity: 0.7;
 }
 
 .gauge-marker {
   stroke: var(--accent);
   stroke-width: 2;
   stroke-linecap: round;
+  filter: drop-shadow(0 0 4px var(--accent));
 }
 
 @keyframes tide {
@@ -540,167 +888,233 @@ input {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: var(--sp-2);
 }
 
-.readout-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.readout-percent {
-  font-family: var(--font-instrument);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-}
-
+/*
+ * 巨号读数。用展示字的最窄字宽（font-stretch 88%）——
+ * 400px 宽的窗口里，四位数加单位必须一行放得下。
+ */
 .readout-value {
-  margin: 7px 0 0;
-  font-family: var(--font-instrument);
-  font-size: 44px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display);
+  font-size: var(--fs-hero);
+  font-weight: 700;
+  font-stretch: 88%;
+  line-height: 0.9;
+  letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-shadow: 0 0 34px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .readout-unit {
-  margin-left: 5px;
+  margin-left: 6px;
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 500;
+  letter-spacing: 0;
   color: var(--muted);
+  text-shadow: none;
 }
 
-.readout-list {
+/* 四个读数格：两列，格子之间用发丝线分开 —— 像仪表面板上的分区 */
+.readout-grid {
   display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  row-gap: 6px;
-  column-gap: 10px;
-  margin: 13px 0 0;
-  padding-top: 11px;
-  border-top: 1px solid var(--line);
-  font-size: 12.5px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--line);
+  overflow: hidden;
 }
 
-.readout-list dt {
+.readout-cell {
+  padding: 7px 9px;
+  background: color-mix(in srgb, var(--surface-solid) 62%, transparent);
+}
+
+.readout-cell dt {
+  font-size: var(--fs-2xs);
   color: var(--muted);
+  letter-spacing: 0.02em;
 }
 
-.readout-list dd {
-  margin: 0;
-  font-family: var(--font-instrument);
-  font-variant-numeric: tabular-nums;
+.readout-cell dd {
+  font-family: var(--font-data);
+  font-size: var(--fs-sm);
   font-weight: 600;
-  text-align: right;
+  color: var(--text);
+  white-space: nowrap;
 }
 
-.readout-list dd.is-close {
+.readout-cell dd.is-close {
   color: var(--good);
 }
 
-/* ------------------------------------------------------------ 快捷记录 */
+/*
+ * 倒计时条：通栏，上方一道发丝线把它和读数区分开。
+ * 左标签右数值 —— 这是这台仪器的「下一个动作」指示位，所以它是唯一
+ * 允许用强调色发光的读数。
+ */
+.hero-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 9px var(--sp-4) 10px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.hero-foot strong {
+  font-family: var(--font-data);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* ========================================================== 快捷记录 */
 
 .quick-row {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
+/*
+ * 玻璃按钮。悬停时有一道斜向光泽扫过（::after 的位移渐变）——
+ * 比单纯变亮更像「水面上划过的光」。
+ */
 .quick-btn {
   position: relative;
+  overflow: hidden;
   flex: 1;
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: 2px;
-  padding: 12px 6px;
+  min-height: 46px;
+  padding: var(--sp-3) 6px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, transform 0.08s;
+  transition: transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+
+.quick-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, var(--glare) 50%, transparent 65%);
+  transform: translateX(-130%);
+  transition: transform var(--dur-slow) var(--ease-out);
+  pointer-events: none;
 }
 
 .quick-btn:hover {
-  background: var(--accent-soft);
   border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+
+.quick-btn:hover::after {
+  transform: translateX(130%);
 }
 
 .quick-btn:active {
-  transform: scale(0.97);
+  transform: scale(0.975);
 }
 
 .quick-btn.is-default {
   border-color: var(--accent);
   background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 0 18px -8px var(--accent);
 }
 
 /* 高亮的那一杯就是快捷键记的那一杯，标出来省得猜 */
-.quick-btn.is-default::after {
+.quick-btn.is-default::before {
   content: '快捷键';
   position: absolute;
-  top: -7px;
-  right: 7px;
-  padding: 1px 5px;
-  border-radius: 999px;
+  top: 0;
+  right: 0;
+  padding: 1px 6px;
+  border-radius: 0 var(--r-2) 0 var(--r-1);
   background: var(--accent);
   color: var(--on-accent);
   font-size: 9px;
-  line-height: 1.5;
+  line-height: 1.6;
   letter-spacing: 0.02em;
 }
 
 .quick-plus {
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: var(--fs-base);
+  font-weight: 500;
   color: var(--accent);
 }
 
 .quick-num {
-  font-family: var(--font-instrument);
-  font-size: 19px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  font-stretch: 92%;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
 .quick-unit {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--muted);
 }
 
 .quick-custom {
   display: flex;
-  gap: 8px;
-  margin-top: 11px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
 }
 
 .quick-custom input {
   flex: 1;
   min-width: 0;
-  padding: 9px 12px;
+  padding: 9px var(--sp-3);
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+  font-family: var(--font-data);
+  font-size: var(--fs-sm);
   outline: none;
+}
+
+.quick-custom input::placeholder {
+  font-family: var(--font-body);
+  color: var(--muted);
 }
 
 .quick-custom input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* ---------------------------------------------------------------- 按钮 */
+/* ============================================================== 按钮 */
 
 .btn {
-  padding: 8px 15px;
+  position: relative;
+  min-height: 34px;
+  padding: 8px var(--sp-4);
   border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-2);
   background: var(--accent);
   color: var(--on-accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-out);
 }
 
 .btn:hover {
@@ -708,8 +1122,12 @@ input {
   border-color: var(--accent-strong);
 }
 
+.btn:active {
+  transform: scale(0.98);
+}
+
 .btn-ghost {
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-solid) 45%, transparent);
   border-color: var(--line-strong);
   color: var(--text);
 }
@@ -721,8 +1139,13 @@ input {
 }
 
 .btn-sm {
-  padding: 5px 10px;
-  font-size: 12px;
+  min-height: 28px;
+  padding: 5px 11px;
+  font-size: var(--fs-xs);
+}
+
+.btn-ghost.is-danger {
+  color: var(--muted);
 }
 
 .btn-ghost.is-danger:hover {
@@ -732,8 +1155,9 @@ input {
 }
 
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.42;
   cursor: not-allowed;
+  transform: none;
 }
 
 /*
@@ -745,7 +1169,7 @@ input {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  padding: 5px 8px;
+  padding: 5px var(--sp-2);
 }
 
 .icon-btn svg {
@@ -755,11 +1179,11 @@ input {
 }
 
 .btn-ghost:disabled:hover {
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-solid) 45%, transparent);
   border-color: var(--line-strong);
 }
 
-/* ------------------------------------------------------------ 主题切换 */
+/* ========================================================== 主题切换 */
 
 .segment {
   display: flex;
@@ -767,22 +1191,23 @@ input {
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-2);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
 }
 
 .segment button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 22px;
+  width: 27px;
+  height: 23px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: none;
   color: var(--muted);
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
 }
 
 .segment button:hover {
@@ -803,8 +1228,8 @@ input {
 /* 文字版分段（主题切换是图标版）：宽度跟着字走，压小字号 */
 .segment-text button {
   width: auto;
-  padding: 0 10px;
-  font-size: 11.5px;
+  padding: 0 11px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -829,161 +1254,196 @@ input {
   white-space: nowrap;
 }
 
-/* -------------------------------------------------------------- 记录列表 */
+/* ========================================================== 今天的记录 */
 
 /*
- * 不设内部滚动：页面本身已经是一个滚动列，再嵌一层滚动区就会出现
- * 「滚不动了，得先挪到内层」的滚动陷阱。今天的记录就该一次看完。
+ * 时间轴：左侧一条竖线串起每个记录点 —— 和量筒刻度是同一种「尺」的语言。
+ * 不设内部滚动：页面本身已经是一个滚动列，再嵌一层就会出现滚动陷阱。
  */
 .log-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  position: relative;
+}
+
+.log-list::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--line);
 }
 
 .log-list li {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 12.5px;
+  gap: var(--sp-3);
+  padding: 6px 0 6px 18px;
+  font-size: var(--fs-sm);
 }
 
-.log-list li:last-child {
-  border-bottom: 0;
+.log-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border: 1px solid var(--water-bottom);
+  border-radius: var(--r-pill);
+  background: var(--water-top);
 }
 
 .log-time {
   font-family: var(--font-data);
-  font-size: 12px;
+  font-size: var(--fs-2xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 .log-ml {
   flex: 1;
-  font-family: var(--font-instrument);
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 650;
+  font-stretch: 92%;
   font-variant-numeric: tabular-nums;
 }
 
 .log-source {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  font-size: 10.5px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+  font-size: var(--fs-2xs);
   color: var(--muted);
 }
 
-/* ---------------------------------------------------------------- 图表 */
+/* ========================================================== 近 7 天 */
 
-.chart {
-  --plot-h: 112px;
-}
-
-.chart-cols {
+/*
+ * 横向水位条而不是竖柱：每一行是一条水位，读「哪天过得高」比竖柱更快，
+ * 也更贴这套设计的水面隐喻。
+ */
+.levels {
+  --level-label: 34px;
+  --level-value: 46px;
+  --level-gap: 8px;
   position: relative;
-  height: var(--plot-h);
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-  align-items: end;
 }
 
-.chart-col {
+.levels-rows {
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  height: 100%;
+  flex-direction: column;
+  gap: 5px;
 }
 
-.chart-slot {
+.level-row {
+  display: grid;
+  grid-template-columns: var(--level-label) 1fr var(--level-value);
+  align-items: center;
+  gap: var(--level-gap);
+  font-size: var(--fs-xs);
+}
+
+.level-day {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.level-track {
   position: relative;
-  width: 58%;
-  min-height: 3px;
+  height: 14px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surface-solid) 60%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
 }
 
-.chart-bar {
-  width: 100%;
-  height: 100%;
-  min-height: 3px;
-  border-radius: 3px 3px 2px 2px;
-  background: var(--accent-soft);
-}
-
-.chart-bar.is-hit {
-  background: var(--accent);
-}
-
-/* 目标线：横跨整个绘图区，一眼看出哪几天越过去了 */
-.chart-goal {
+.level-fill {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset: 0 auto 0 0;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--water-bottom), var(--water-top));
+}
+
+.level-row.is-hit .level-fill {
+  background: linear-gradient(90deg, var(--water-bottom), var(--accent));
+  box-shadow: 0 0 14px -2px var(--accent);
+}
+
+.level-value {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.level-row.is-today .level-day,
+.level-row.is-today .level-value {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/*
+ * 目标线：贯穿所有行的竖向虚线。
+ * 每一行的轨道左右边界完全一致（同一个 grid 模板），所以这里只要按
+ * 「标签列 + 间隙 + 轨道宽度 × 比例」算出横向位置就能对齐每一条轨道。
+ */
+.levels-goal {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   z-index: 2;
-  border-top: 1px dashed var(--accent);
-  opacity: 0.55;
+  border-left: 1px dashed var(--accent);
+  opacity: 0.5;
   pointer-events: none;
 }
 
-.chart-axis {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.chart-axis-cell {
+.levels-axis {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 1px;
-}
-
-.chart-value {
-  font-family: var(--font-instrument);
-  font-size: 9.5px;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-2xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.chart-day {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.chart-axis-cell.is-today .chart-value,
-.chart-axis-cell.is-today .chart-day {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* ---------------------------------------------------------------- 设置 */
+/* ============================================================== 设置 */
 
 .settings h3 {
-  margin: 16px 0 4px;
-  font-family: var(--font-instrument);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  margin: var(--sp-4) 0 var(--sp-1);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 620;
+  letter-spacing: 0.1em;
   color: var(--accent);
 }
 
 .settings h3:first-child {
-  margin-top: 2px;
+  margin-top: var(--sp-1);
 }
 
 .field {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 6px 0;
+  gap: var(--sp-3);
+  padding: 5px 0;
 }
 
 .field-label {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .field-control {
@@ -993,33 +1453,34 @@ input {
 }
 
 .field-control input {
-  width: 82px;
+  width: 84px;
   padding: 6px 10px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
+  font-family: var(--font-data);
+  font-size: var(--fs-sm);
   text-align: right;
   outline: none;
 }
 
 .field-control input[type='time'] {
-  width: 94px;
+  width: 96px;
   text-align: center;
-  font-family: var(--font-instrument);
 }
 
 .field-control input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 /*
- * 单位占固定列宽：输入框固定 82px，单位列不固定的话，「ml / 分钟」宽窄不一，
- * 「输入框+单位」整组右对齐后输入框右缘就会参差不齐。固定后输入框右缘、
- * 单位左缘各成一条直线。
+ * 单位占固定列宽：输入框固定 84px，单位列不固定的话，「ml / 分钟」宽窄不一，
+ * 「输入框+单位」整组右对齐后输入框右缘就会参差不齐。
  */
 .field-unit {
   min-width: 30px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1031,29 +1492,32 @@ input {
   text-align: center;
 }
 
+/*
+ * 开关式复选框。原生那个在深色模式下是暖灰底，和整套冷色系对不上，
+ * 而 accent-color 只管选中态，管不到未选中的那个框。
+ * 做成一枚小玻璃格：选中即亮起荧光。
+ */
 .toggle {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--sp-3);
   padding: 7px 0;
   cursor: pointer;
 }
 
-/*
- * 复选框自己画：原生那个在深色模式下是暖灰底，和整套冷色系对不上，
- * 而 accent-color 只管选中态，管不到未选中的那个框。
- */
 .toggle input {
   appearance: none;
   position: relative;
-  margin: 2px 0 0;
-  width: 17px;
-  height: 17px;
+  margin: 3px 0 0;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   border: 1.5px solid var(--line-strong);
-  border-radius: 5px;
-  background: var(--surface-2);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft), box-shadow var(--dur-fast) var(--ease-soft);
 }
 
 .toggle input:hover {
@@ -1063,6 +1527,7 @@ input {
 .toggle input:checked {
   border-color: var(--accent);
   background: var(--accent);
+  box-shadow: 0 0 12px -2px var(--accent);
 }
 
 .toggle input:checked::after {
@@ -1084,27 +1549,27 @@ input {
 }
 
 .toggle-label {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .toggle-hint {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .action-row {
   display: flex;
-  gap: 10px;
-  margin-top: 16px;
-  padding-top: 14px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--line);
 }
 
 .inline-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 
 .inline-row .toggle {
@@ -1113,10 +1578,10 @@ input {
 }
 
 .preview-status {
-  margin: 6px 0 0;
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
+  margin-top: var(--sp-2);
+  padding: 7px 10px;
+  border-radius: var(--r-1);
+  font-size: var(--fs-xs);
   line-height: 1.6;
   color: var(--good);
   background: var(--good-soft);
@@ -1127,7 +1592,7 @@ input {
   background: var(--danger-soft);
 }
 
-/* ------------------------------------------------- 节假日数据状态行 */
+/* ================================================== 节假日数据状态行 */
 
 /*
  * 「工作日判定 → 按节假日调休」下面的一行：左边数据状态，右边更新按钮。
@@ -1137,17 +1602,17 @@ input {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
-  margin: 2px 0 4px;
+  gap: var(--sp-3);
+  margin: 2px 0 var(--sp-1);
 }
 
 .holiday-text {
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
+  padding: 7px 10px;
+  border-radius: var(--r-1);
+  font-size: var(--fs-xs);
   line-height: 1.6;
   color: var(--muted);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
 }
 
 .holiday-text.is-ok {
@@ -1169,28 +1634,28 @@ input {
   flex-shrink: 0;
 }
 
-/* -------------------------------------------------------------- 状态栏 */
+/* ============================================================ 状态栏 */
 
 /*
  * 窗口底部：左边版本号，右边更新状态。
- * 这是这台「仪器」的铭牌位置 —— 字号压到最小、颜色压到最灰，
- * 只有「有新版本」才允许用强调色。
+ * 字号压到最小、颜色压到最灰，只有「有新版本」才允许用强调色。
  */
 .statusbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 7px 14px;
-  background: var(--surface);
+  gap: var(--sp-3);
+  padding: 7px var(--sp-4);
   border-top: 1px solid var(--line);
-  font-size: 11.5px;
+  background: var(--surface);
+  backdrop-filter: blur(14px) saturate(150%);
+  font-size: var(--fs-xs);
 }
 
 .statusbar-version {
-  font-family: var(--font-instrument);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.04em;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1198,7 +1663,7 @@ input {
 .statusbar-state {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   min-width: 0;
 }
 
@@ -1218,7 +1683,7 @@ input {
   color: var(--danger);
 }
 
-/* -------------------------------------------------------------- 滚动条 */
+/* ============================================================ 滚动条 */
 
 ::-webkit-scrollbar {
   width: 8px;
@@ -1226,21 +1691,36 @@ input {
 
 ::-webkit-scrollbar-thumb {
   background: var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--r-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* ------------------------------------------------------------ 减弱动效 */
+/* ============================================================ 减弱动效 */
 
+/*
+ * 降级不是「把时长改到 0.001ms」—— 那会让入场动画留下一个闪帧。
+ * 直接取消动画与过渡，元素以最终状态呈现。
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .content > *,
+  .titlebar,
+  .topbar,
+  .statusbar {
+    opacity: 1;
+    transform: none;
   }
 }

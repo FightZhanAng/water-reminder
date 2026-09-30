@@ -2,7 +2,39 @@ import { useEffect, useRef, useState } from 'react'
 import { QUICK_AMOUNTS } from '@shared/defaults'
 import type { AppState } from '@shared/types'
 import { DROP_BOTTOM, DROP_PATH, DROP_SPAN } from './DropMark'
+import { waveBand } from '../wave'
 import { useTheme } from '../useTheme'
+
+/** 小水滴的液面波：周期必须与 CSS 里 drop-tide 的位移量一致才能无缝循环 */
+const DROP_WAVE_PERIOD = 32
+const DROP_WAVE_AMP = 2
+const DROP_WAVE_SPAN = 64 + DROP_WAVE_PERIOD * 2
+const DROP_WAVE_D = waveBand(DROP_WAVE_SPAN, DROP_WAVE_PERIOD, DROP_WAVE_AMP, 6)
+
+/** 水滴里的水柱：一条纵向渐变，上缘亮、底部沉 —— 和主面板的量筒同一套水色 */
+function DropWater({ waterHeight, done }: { waterHeight: number; done: boolean }) {
+  if (waterHeight <= 0) return null
+  const surface = DROP_BOTTOM - waterHeight
+
+  return (
+    <>
+      <rect
+        className={done ? 'drop-water is-done' : 'drop-water'}
+        x="0"
+        y={surface}
+        width="64"
+        height={waterHeight}
+      />
+      {/*
+        液面波。这里也要判空：波的带子比液面低几个像素，
+        一滴都没有时整体贴到滴底，会露出一条浅色横杠，看着像「有点水」。
+      */}
+      <g transform={`translate(${-DROP_WAVE_PERIOD} ${surface})`}>
+        <path className={done ? 'drop-wave is-done' : 'drop-wave'} d={DROP_WAVE_D} />
+      </g>
+    </>
+  )
+}
 
 export default function FloatCard(): React.JSX.Element {
   const [state, setState] = useState<AppState | null>(null)
@@ -99,6 +131,7 @@ export default function FloatCard(): React.JSX.Element {
   const { today, settings } = state
   const percent = today.goal > 0 ? Math.min(1, today.total / today.goal) : 0
   const remaining = Math.max(0, today.goal - today.total)
+  const done = percent >= 1
   const waterHeight = DROP_SPAN * percent
 
   const log = async (ml: number): Promise<void> => {
@@ -120,16 +153,20 @@ export default function FloatCard(): React.JSX.Element {
               <clipPath id="dropClip">
                 <path d={DROP_PATH} />
               </clipPath>
+              <linearGradient id="dropWater" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" className="drop-stop-top" />
+                <stop offset="0.5" className="drop-stop-mid" />
+                <stop offset="1" className="drop-stop-bottom" />
+              </linearGradient>
+              <linearGradient id="dropWaterDone" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" className="drop-stop-done" />
+                <stop offset="0.5" className="drop-stop-mid" />
+                <stop offset="1" className="drop-stop-bottom" />
+              </linearGradient>
             </defs>
             <path d={DROP_PATH} className="drop-outline" />
             <g clipPath="url(#dropClip)">
-              <rect
-                x="0"
-                y={DROP_BOTTOM - waterHeight}
-                width="64"
-                height={waterHeight}
-                className={percent >= 1 ? 'drop-water is-done' : 'drop-water'}
-              />
+              <DropWater waterHeight={waterHeight} done={done} />
             </g>
             <path d={DROP_PATH} className="drop-stroke" />
           </svg>
@@ -147,6 +184,7 @@ export default function FloatCard(): React.JSX.Element {
               key={ml}
               type="button"
               className={ml === settings.cupSize ? 'float-btn is-primary' : 'float-btn'}
+              aria-label={`记 ${ml} 毫升`}
               onClick={() => void log(ml)}
             >
               +{ml}

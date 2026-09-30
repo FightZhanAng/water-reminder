@@ -1,3 +1,5 @@
+import { waveBand } from '../wave'
+
 interface WaterGaugeProps {
   total: number
   goal: number
@@ -25,21 +27,7 @@ const WAVE_PERIOD = 58
 const WAVE_AMP = 2.5
 const WAVE_SPAN = W + WAVE_PERIOD * 2
 
-/**
- * 以 y=0 为基线、周期 period 的起伏曲线，再封成一条向下 7px 的带子。
- * 每半周期用一个二次贝塞尔近似正弦：控制点落在极值处，中点正好等于振幅。
- */
-function waveBand(span: number, period: number, amp: number): string {
-  const half = period / 2
-  let d = 'M 0 0'
-  let dir = -1
-  for (let x = 0; x < span; x += half) {
-    d += ` Q ${x + half / 2} ${dir * amp * 2} ${x + half} 0`
-    dir = -dir
-  }
-  return `${d} L ${span} 7 L 0 7 Z`
-}
-
+/** 液面带：多画两个周期，配 CSS 的 tide 位移循环正好无缝 */
 const WAVE_D = waveBand(WAVE_SPAN, WAVE_PERIOD, WAVE_AMP)
 
 /** 长刻度带数字（0 / 一半 / 目标），短刻度只做四分之一分度 */
@@ -75,8 +63,21 @@ export default function WaterGauge({ total, goal }: WaterGaugeProps): React.JSX.
         <clipPath id="gauge-clip">
           <rect x={X} y={TOP} width={W} height={BOTTOM - TOP} rx={RADIUS} />
         </clipPath>
+        {/*
+          三段渐变而不是两段：两段在只有上半截可见时（水位低）几乎是一块平色，
+          看着像塑料块而不是水。中间那一段按比例混出水体色，深度才读得出来。
+        */}
         <linearGradient id="gauge-water" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" className="gauge-stop-top" />
+          <stop offset="0.45" className="gauge-stop-mid" />
+          <stop offset="1" className="gauge-stop-bottom" />
+        </linearGradient>
+        {/*
+          达标时换成荧光青绿的「发光水」。单独一条渐变而不是复用上一条：
+          走 CSS 的 color-mix 得给每个 stop 各写一次，不如就在这儿定义明确。
+        */}
+        <linearGradient id="gauge-done" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" className="gauge-stop-done-top" />
           <stop offset="1" className="gauge-stop-bottom" />
         </linearGradient>
         <linearGradient id="gauge-glare" x1="0" y1="0" x2="1" y2="0">

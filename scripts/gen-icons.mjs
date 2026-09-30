@@ -2,19 +2,43 @@
  * 图标生成器 —— 纯 Node 实现，零依赖。
  *
  * 产出：
- *   resources/icon.png            256x256 应用图标（水滴）
+ *   resources/icon.png            256x256 应用图标（快捷方式、任务栏、窗口）
  *   resources/icon.ico            多尺寸 Windows 图标（16/24/32/48/64/128/256）
  *   resources/tray/tray-<n>.png   32x32 托盘水滴，n = 0,10,...,100 即水位刻度
  *
- * 为什么 ICO 也自己写：electron-builder 默认用它的 WASM 图标工具做 png→ico 转换，
- * 那东西在内存受限的环境里会直接 `WebAssembly.Memory(): could not allocate memory`
- * 把整个打包流程搞挂。自己生成 ICO 既绕开这个坑，也少一层依赖。
- * 另外自己画而不引入 sharp/canvas：那两个都是原生模块，
- * 一旦带上就得处理 electron-rebuild，为一个图标不值得。
+ * ── 应用图标：一颗装了水的玻璃水滴，全幅，不带底板 ──
+ *
+ * 为什么不留底板（深色圆角方块那一层）：16px 一共才 256 个像素，套一层底板等于
+ * 再切掉三成给留白；而快捷方式图标的左下角还要被系统叠一个箭头角标。全幅水滴
+ * 把主体做满，角标压上来仍然认得出。代价是它不再像「一块 App」，而就是那颗水滴 ——
+ * 这反而和托盘图标、和界面里那颗水滴合成了一套。
+ *
+ * ── 轮廓用「两圆外公切线」，不是 r*sqrt(...) ──
+ *
+ * 之前用的是 halfW = r*sqrt((y-apex)/(cy-apex))：在顶点斜率无穷大，会拉成一根细刺。
+ * 细刺 + 一圈亮描边 + 一道平直液面，三样凑一起会被读成「手提包 / 挂锁」—— 实测
+ * 16px 下尤其明显。现在把顶端换成一个小圆、底端一个大圆、外侧用外公切线连起来，
+ * 尖是圆润的，弧线是连续的。
+ *
+ * 液面那道亮线不是装饰：应用里水位尺、量筒、近 7 天水位条反复出现的就是它。
+ * 而且它要微微中间低、贴壁高 —— 弯月面本来就贴壁往上爬，画成平直一条会立刻
+ * 变回「包口」。
+ *
+ * ── 托盘：同一颗水滴，但颜色刻意不跟着上面走 ──
+ *
+ * 托盘只有 16px，还要落在深浅两种任务栏上。所以轮廓走中性冷灰、水色用青，
+ * 达标才转荧光青绿。跟着深色板走的话，深色水滴落到深色任务栏上等于把图标删了。
+ *
+ * ── 为什么 ICO 也自己写 ──
+ *
+ * electron-builder 默认用它的 WASM 图标工具做 png→ico 转换，那东西在内存受限的
+ * 环境里会直接 `WebAssembly.Memory(): could not allocate memory` 把打包流程搞挂。
+ * 自己生成 ICO 既绕开这个坑，也少一层依赖。另外自己画而不引入 sharp/canvas：
+ * 那两个都是原生模块，一旦带上就得处理 electron-rebuild，为一个图标不值得。
  */
 import { deflateSync } from 'node:zlib'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -69,23 +93,23 @@ function encodePng(width, height, rgba) {
 
 /* ------------------------------------------------------------- 光栅化工具 */
 
-const SS = 4 // 每像素 4x4 超采样，足够消除锯齿
-
 /**
  * @param {number} size 画布边长
  * @param {(px:number, py:number) => {rgb:number[], a:number}|null} sampler
  *        入参为 0..1 归一化坐标，返回颜色与非预乘 alpha
+ * @param {number} [ss] 每像素超采样倍数（ss x ss）。小尺寸要更高，
+ *        否则 16px 的图标总共只有 64x64 个采样点，液面这种细结构会碎掉
  */
-function rasterize(size, sampler) {
+function rasterize(size, sampler, ss = size <= 32 ? 8 : 4) {
   const out = Buffer.alloc(size * size * 4)
-  const total = SS * SS
+  const total = ss * ss
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       let r = 0, g = 0, b = 0, a = 0
-      for (let sy = 0; sy < SS; sy++) {
-        for (let sx = 0; sx < SS; sx++) {
-          const px = (x + (sx + 0.5) / SS) / size
-          const py = (y + (sy + 0.5) / SS) / size
+      for (let sy = 0; sy < ss; sy++) {
+        for (let sx = 0; sx < ss; sx++) {
+          const px = (x + (sx + 0.5) / ss) / size
+          const py = (y + (sy + 0.5) / ss) / size
           const hit = sampler(px, py)
           if (hit) {
             r += hit.rgb[0] * hit.a
@@ -113,6 +137,184 @@ function lerp(a, b, t) {
     Math.round(a[1] + (b[1] - a[1]) * t),
     Math.round(a[2] + (b[2] - a[2]) * t)
   ]
+}
+
+const clamp = (v, lo = 0, hi = 1) => (v < lo ? lo : v > hi ? hi : v)
+
+/** 多停渐变：stops = [[位置, 颜色], ...]，位置递增 */
+function ramp(stops, t) {
+  const x = clamp(t)
+  for (let i = 1; i < stops.length; i++) {
+    const [p1, c1] = stops[i]
+    if (x <= p1 || i === stops.length - 1) {
+      const [p0, c0] = stops[i - 1]
+      const span = p1 - p0 || 1
+      return lerp(c0, c1, clamp((x - p0) / span))
+    }
+  }
+  return stops[0][1]
+}
+
+/* ------------------------------------------------------------ 水滴几何 */
+
+/**
+ * 圆头锥形水滴：顶端一个小圆、底端一个大圆，两者圆心同在竖轴上，
+ * 外侧用外公切线连起来。
+ *
+ * 为什么不用「半宽 = r*sqrt(...)」那套：那种剖面在顶点处斜率无穷大，
+ * 会拉出一根细刺；细刺配上亮描边和一道平直液面，整体就被读成手提包。
+ * 外公切线版的顶端是个小圆，尖得圆润，弧线连续。
+ *
+ * 返回的对象里：
+ *   top / bottom  水滴的上下边界
+ *   halfWAt(y)    某个高度处的半宽（算弯月面要用）
+ *   depth(px,py)  形状内返回「到轮廓的垂直距离」，形状外返回 null
+ */
+function makeTeardrop({ cx, y1, r1, y2, r2 }) {
+  const D = y2 - y1
+  const de = r2 - r1
+  if (D <= de || D <= 0) throw new Error('水滴参数退化：需要 y2-y1 > r2-r1 > 0')
+
+  // 外公切线的法线 x 分量与斜率；切线在竖直方向上的倾斜角由 (r2-r1)/(y2-y1) 决定
+  const nx = Math.sqrt(1 - (de * de) / (D * D))
+  const slope = de / Math.sqrt(D * D - de * de)
+  const norm = Math.sqrt(1 + slope * slope)
+
+  // 两个切点：顶端小圆上的、底端大圆上的
+  const t1y = y1 - (r1 * de) / D
+  const t2y = y2 - (r2 * de) / D
+  const t1half = r1 * nx
+
+  return {
+    cx,
+    top: y1 - r1,
+    bottom: y2 + r2,
+    halfWAt(y) {
+      if (y <= t1y) return Math.sqrt(Math.max(0, r1 * r1 - (y - y1) ** 2))
+      if (y >= t2y) return Math.sqrt(Math.max(0, r2 * r2 - (y - y2) ** 2))
+      return t1half + (y - t1y) * slope
+    },
+    depth(px, py) {
+      const dx = Math.abs(px - cx)
+      if (py <= t1y) {
+        const d = Math.hypot(dx, py - y1)
+        return d > r1 ? null : r1 - d
+      }
+      if (py >= t2y) {
+        const d = Math.hypot(dx, py - y2)
+        return d > r2 ? null : r2 - d
+      }
+      const halfW = t1half + (py - t1y) * slope
+      if (dx > halfW) return null
+      return (halfW - dx) / norm
+    }
+  }
+}
+
+/* ------------------------------------------------------- 应用图标（水滴）*/
+
+/*
+ * 留白是有意留的：上下各约 7% 给快捷方式角标和视觉呼吸，
+ * 主体高度约 86% —— 16px 下换算出约 13.7px，是这个尺寸能给的极限。
+ */
+const DROP = makeTeardrop({ cx: 0.5, y1: 0.115, r1: 0.048, y2: 0.6, r2: 0.325 })
+
+/** 水滴外壳（描边）：上亮下暗，像一圈玻璃口沿 */
+const RIM_TOP = [178, 244, 255]
+const RIM_BOTTOM = [46, 140, 172]
+const STROKE = 0.03
+
+/** 水滴空腔（液面以上）：玻璃内壁，比外壳暗、比深水亮 */
+const GLASS_TOP = [11, 46, 60]
+const GLASS_BOTTOM = [20, 78, 100]
+/** 沿内缘的菲涅尔亮边：越贴近轮廓越亮 */
+const FRESNEL_COLOR = [216, 250, 255]
+const FRESNEL = 0.45
+/** 宽幅顶光：整块玻璃被上方照亮，从上往下渐暗 */
+const SHEEN_COLOR = [150, 226, 244]
+const SHEEN = 0.14
+
+/** 液面：一道发光的水线，中间低贴壁高（弯月面）；水线以下是发光水体，越深越沉 */
+const LEVEL = 0.5
+const LINE_H = 0.022
+const ARC = 0.016
+const MENISCUS = [232, 253, 255]
+const WATER_RAMP = [
+  [0, [152, 250, 255]],
+  [0.3, [56, 206, 236]],
+  [0.7, [10, 106, 136]],
+  [1, [4, 56, 76]]
+]
+
+function appIconSampler(px, py) {
+  const depth = DROP.depth(px, py)
+  if (depth === null) return null // 全幅：轮廓外直接透明
+
+  const span = DROP.bottom - DROP.top
+
+  // 1) 外壳
+  if (depth <= STROKE) {
+    return { rgb: lerp(RIM_TOP, RIM_BOTTOM, clamp((py - DROP.top) / span)), a: 1 }
+  }
+
+  // 2) 弯月面
+  const waterY = DROP.top + span * LEVEL
+  const halfW = Math.max(DROP.halfWAt(waterY), 1e-4)
+  const dxN = clamp(Math.abs(px - DROP.cx) / halfW)
+  const line = waterY + ARC * (1 - dxN * dxN)
+
+  // 3) 液面以上：玻璃内壁
+  if (py < line) {
+    let glass = lerp(GLASS_TOP, GLASS_BOTTOM, clamp((py - DROP.top) / Math.max(line - DROP.top, 1e-4)))
+    glass = lerp(glass, SHEEN_COLOR, clamp(1 - (py - DROP.top) / Math.max(line - DROP.top, 1e-4)) * SHEEN)
+    glass = lerp(glass, FRESNEL_COLOR, Math.pow(clamp(1 - depth / 0.075), 1.5) * FRESNEL)
+    return { rgb: glass, a: 1 }
+  }
+
+  // 4) 水线本身
+  if (py < line + LINE_H) return { rgb: MENISCUS, a: 1 }
+
+  // 5) 水体
+  return {
+    rgb: ramp(WATER_RAMP, (py - line - LINE_H) / Math.max(DROP.bottom - line - LINE_H, 1e-4)),
+    a: 1
+  }
+}
+
+/* ------------------------------------------- 水滴水位（托盘图标）*/
+
+/*
+ * 托盘只有 16px，而且要在深浅两种任务栏上都读得出来：
+ * 轮廓用中性冷灰、水色用青，达标才转荧光青绿。别跟着应用的深色板走 ——
+ * 深色水滴落到深色任务栏上等于把图标删了。
+ */
+const TRAY_EMPTY = [126, 138, 144]
+const TRAY_EMPTY_ALPHA = 0.26
+const TRAY_STROKE_ALPHA = 0.86
+const TRAY_WATER_TOP = [142, 238, 250]
+const TRAY_WATER_BOTTOM = [9, 106, 138]
+const TRAY_DONE_TOP = [96, 236, 206]
+const TRAY_DONE_BOTTOM = [14, 140, 112]
+
+// 和 DROP 同一套剖面、同样的瘦长比，只是整体缩到 32x32 里留一点呼吸位
+const TRAY_DROP = makeTeardrop({ cx: 0.5, y1: 0.12, r1: 0.046, y2: 0.585, r2: 0.31 })
+const TRAY_SPAN = TRAY_DROP.bottom - TRAY_DROP.top
+const TRAY_STROKE = 0.032
+
+/** 水滴轮廓固定，水面随进度上升；装满时整颗转绿 */
+function dropLevelSampler(progress) {
+  const level = TRAY_DROP.bottom - TRAY_SPAN * Math.min(1, progress)
+  const done = progress >= 1
+  const top = done ? TRAY_DONE_TOP : TRAY_WATER_TOP
+  const bottom = done ? TRAY_DONE_BOTTOM : TRAY_WATER_BOTTOM
+
+  return (px, py) => {
+    const depth = TRAY_DROP.depth(px, py)
+    if (depth === null) return null
+    if (depth <= TRAY_STROKE) return { rgb: TRAY_EMPTY, a: TRAY_STROKE_ALPHA }
+    if (py < level) return { rgb: TRAY_EMPTY, a: TRAY_EMPTY_ALPHA }
+    return { rgb: lerp(top, bottom, (py - level) / Math.max(TRAY_DROP.bottom - level, 1e-4)), a: 1 }
+  }
 }
 
 /* ---------------------------------------------------------------- ICO 编码 */
@@ -144,9 +346,19 @@ function encodeBmpFrame(rgba, size) {
     }
   }
 
-  // AND 掩码每行按 4 字节对齐。32 位色下交给我们自己的 alpha 通道，全 0 即可
+  // AND 掩码每行按 4 字节对齐，自下而上，位序高位在前。1 = 透明、0 = 不透明。
+  // 现代 Windows 走 32bpp 的 alpha 通道、根本不看这块，但忽略 alpha 的旧路径
+  // （某些老控件、老看图器、部分缩略图生成器）会退回到它 —— 写成全 0 的话，
+  // 那些地方会把轮廓外的透明区域画成一个黑方块。花几行写对，省一类难查的怪毛病
   const maskRowBytes = Math.ceil(size / 32) * 4
   const mask = Buffer.alloc(maskRowBytes * size)
+  for (let y = 0; y < size; y++) {
+    const sourceY = size - 1 - y // 和 XOR 一样自下而上
+    for (let x = 0; x < size; x++) {
+      if (rgba[(sourceY * size + x) * 4 + 3] >= 128) continue
+      mask[y * maskRowBytes + (x >> 3)] |= 0x80 >> (x & 7)
+    }
+  }
 
   return Buffer.concat([header, xor, mask])
 }
@@ -177,111 +389,43 @@ function encodeIco(frames) {
   return Buffer.concat([header, directory, ...frames.map((frame) => frame.data)])
 }
 
-/* ------------------------------------------------------------ 水滴（图标）*/
-
-const DROP_TOP = [94, 176, 245]
-const DROP_BOTTOM = [24, 95, 165]
-
-function dropSampler(px, py) {
-  const cx = 0.5
-  const apex = 0.09
-  const cy = 0.605
-  const r = 0.335
-
-  if (py < apex) return null
-  let halfW
-  if (py <= cy) halfW = r * Math.sqrt((py - apex) / (cy - apex))
-  else if (py <= cy + r) halfW = Math.sqrt(Math.max(0, r * r - (py - cy) * (py - cy)))
-  else return null
-  if (Math.abs(px - cx) > halfW) return null
-
-  // 高光：左上角两枚柔和椭圆
-  const hx = (px - 0.375) / 0.055
-  const hy = (py - 0.495) / 0.075
-  if (hx * hx + hy * hy <= 1) return { rgb: [255, 255, 255], a: 0.34 }
-  const sx = (px - 0.335) / 0.028
-  const sy = (py - 0.615) / 0.038
-  if (sx * sx + sy * sy <= 1) return { rgb: [255, 255, 255], a: 0.26 }
-
-  return { rgb: lerp(DROP_TOP, DROP_BOTTOM, (py - apex) / (1 - apex)), a: 1 }
-}
-
-/* ------------------------------------------- 水滴水位（托盘图标）  */
-
-const TRAY_EMPTY = [136, 135, 128]
-const TRAY_EMPTY_ALPHA = 0.28
-const TRAY_STROKE_ALPHA = 0.8
-const TRAY_WATER_TOP = [96, 181, 245]
-const TRAY_WATER_BOTTOM = [24, 116, 206]
-const TRAY_DONE_TOP = [86, 196, 112]
-const TRAY_DONE_BOTTOM = [40, 152, 74]
-
-// 与 dropSampler 同形，只是放大到几乎占满 32x32 方格，边缘留一点呼吸位
-const TRAY_CX = 0.5
-const TRAY_APEX = 0.085
-const TRAY_CY = 0.6
-const TRAY_R = 0.345
-const TRAY_BOTTOM = TRAY_CY + TRAY_R
-const TRAY_STROKE = 0.05
-
-/**
- * 点到水滴轮廓的近似垂直距离，在形状内为正，形状外返回 null。
- * 尖顶那段轮廓是 x = cx ± halfW(py)，直接用横向距离会把描边画歪，
- * 所以按切线斜率折回垂直方向。
- */
-function trayDepth(px, py) {
-  if (py < TRAY_APEX || py > TRAY_BOTTOM) return null
-  const dx = Math.abs(px - TRAY_CX)
-  if (py <= TRAY_CY) {
-    const halfW = TRAY_R * Math.sqrt((py - TRAY_APEX) / (TRAY_CY - TRAY_APEX))
-    if (dx > halfW) return null
-    const slope = TRAY_R / (2 * Math.sqrt(Math.max(py - TRAY_APEX, 1e-6) * (TRAY_CY - TRAY_APEX)))
-    return (halfW - dx) / Math.sqrt(1 + slope * slope)
-  }
-  const d = Math.hypot(px - TRAY_CX, py - TRAY_CY)
-  return d > TRAY_R ? null : TRAY_R - d
-}
-
-/** 水滴轮廓固定，水面随进度上升；装满时整颗转绿 */
-function dropLevelSampler(progress) {
-  const level = TRAY_BOTTOM - (TRAY_BOTTOM - TRAY_APEX) * Math.min(1, progress)
-  const done = progress >= 1
-  const top = done ? TRAY_DONE_TOP : TRAY_WATER_TOP
-  const bottom = done ? TRAY_DONE_BOTTOM : TRAY_WATER_BOTTOM
-
-  return (px, py) => {
-    const depth = trayDepth(px, py)
-    if (depth === null) return null
-    if (depth <= TRAY_STROKE) return { rgb: TRAY_EMPTY, a: TRAY_STROKE_ALPHA }
-    if (py < level) return { rgb: TRAY_EMPTY, a: TRAY_EMPTY_ALPHA }
-    return { rgb: lerp(top, bottom, (py - level) / (TRAY_BOTTOM - level)), a: 1 }
-  }
-}
-
 /* ------------------------------------------------------------------ 主流程 */
-
-const iconDir = join(ROOT, 'resources')
-const trayDir = join(iconDir, 'tray')
-mkdirSync(trayDir, { recursive: true })
-
-const iconPath = join(iconDir, 'icon.png')
-const iconRgba256 = rasterize(256, dropSampler)
-writeFileSync(iconPath, encodePng(256, 256, iconRgba256))
 
 // 大尺寸用 PNG 内嵌（体积小），小尺寸用 BMP（兼容性最好）
 const icoSizes = [16, 24, 32, 48, 64, 128, 256]
-const icoFrames = icoSizes.map((size) => {
-  const rgba = size === 256 ? iconRgba256 : rasterize(size, dropSampler)
-  return { size, data: size >= 128 ? encodePng(size, size, rgba) : encodeBmpFrame(rgba, size) }
-})
-const icoPath = join(iconDir, 'icon.ico')
-writeFileSync(icoPath, encodeIco(icoFrames))
 
-for (let percent = 0; percent <= 100; percent += 10) {
-  const png = encodePng(32, 32, rasterize(32, dropLevelSampler(percent / 100)))
-  writeFileSync(join(trayDir, `tray-${percent}.png`), png)
+/*
+ * 只在「直接执行」时写盘。被 import 时（验证脚本要复用采样器）保持只读 ——
+ * 免得一次「看图」的动作顺手改写了 resources/。
+ */
+const isDirectRun =
+  Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (isDirectRun) {
+  const iconDir = join(ROOT, 'resources')
+  const trayDir = join(iconDir, 'tray')
+  mkdirSync(trayDir, { recursive: true })
+
+  const iconPath = join(iconDir, 'icon.png')
+  const iconRgba256 = rasterize(256, appIconSampler)
+  writeFileSync(iconPath, encodePng(256, 256, iconRgba256))
+
+  const icoFrames = icoSizes.map((size) => {
+    const rgba = size === 256 ? iconRgba256 : rasterize(size, appIconSampler)
+    return { size, data: size >= 128 ? encodePng(size, size, rgba) : encodeBmpFrame(rgba, size) }
+  })
+  const icoPath = join(iconDir, 'icon.ico')
+  writeFileSync(icoPath, encodeIco(icoFrames))
+
+  for (let percent = 0; percent <= 100; percent += 10) {
+    const png = encodePng(32, 32, rasterize(32, dropLevelSampler(percent / 100)))
+    writeFileSync(join(trayDir, `tray-${percent}.png`), png)
+  }
+
+  console.log(`icon  -> ${iconPath}`)
+  console.log(`ico   -> ${icoPath} (${icoSizes.join('/')}, ${icoFrames.length} 帧)`)
+  console.log(`tray  -> ${trayDir}/tray-0..100.png (11 帧水位)`)
 }
 
-console.log(`icon  -> ${iconPath}`)
-console.log(`ico   -> ${icoPath} (${icoSizes.join('/')}, ${icoFrames.length} 帧)`)
-console.log(`tray  -> ${trayDir}/tray-0..100.png (11 帧水位)`)
+// 给验证脚本用：导入本文件即可复用同一套采样器，保证「看到的」和「产出的」是同一份
+export { rasterize, encodePng, appIconSampler, dropLevelSampler, icoSizes }
