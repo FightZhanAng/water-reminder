@@ -45,6 +45,21 @@ $node = "node"   # 或在无 PATH 的环境里写 node.exe 的绝对路径
 & $node scripts\electron-run.mjs dev          # 等价于 pnpm dev
 ```
 
+### 依赖没装全 / pnpm 拒绝跑脚本
+
+pnpm 10 起 `package.json` 里的 `pnpm.onlyBuiltDependencies` **不再生效**（pnpm 11 会忽略并警告），
+允许跑安装脚本的白名单只认 **`pnpm-workspace.yaml` 的 `allowBuilds`**。不在名单里的依赖会
+静默跳过 postinstall：`node_modules/electron/dist` 直接不存在。而且每次 `pnpm <script>` 前的
+依赖状态检查都会 `[ERR_PNPM_IGNORED_BUILDS]` 中止 —— 报错里那一大串 pnpm 内部调用栈只是
+这个判定的副作用，别顺着栈去查。
+
+补装 electron 二进制（`@electron/get` 会先查本地缓存，命中就不联网）：
+
+```bash
+node node_modules/electron/install.js
+cat node_modules/electron/path.txt      # 内容是 electron.exe 即成功
+```
+
 ---
 
 ## 2. 本机环境坑
@@ -80,15 +95,18 @@ $env:WATER_SMOKE_TEST = "1"
 
 ### 2.2 到 GitHub 的网络
 
-- **SSH 通道当前不可靠。** `ssh.github.com:443` 的 TCP 能连上
-  （`Test-NetConnection ssh.github.com -Port 443` 返回 True），但 SSH 握手会卡住，
-  最后 `Received disconnect ... Bye Bye`、退出码 255、看不到 `Hi <user>!`。
-  22 端口直接不通。**别反复重试 SSH**，直接走 §3.1。
+- **SSH 时通时不通，先花 5 秒验一下再决定走哪条路。**
+  2026-09-30 实测 `git ls-remote git@github.com:FightZhanAng/water-reminder.git`
+  以及随后的 `git push`（main + tag）都一次成功；更早的会话里则是握手卡住、
+  `Received disconnect ... Bye Bye`、退出码 255。`~/.ssh/config` 里已经配好
+  `HostName ssh.github.com / Port 443`（22 端口不通）。所以：**先跑一次 `ls-remote`**，
+  通了就走 SSH（§3.1 的首选路径），卡住或 255 再换备用路径，别反复重试同一招。
 - **HTTPS 读是通的**（`git ls-remote https://...` 匿名可读，仓库是 public）。
-- **别用 curl / Invoke-WebRequest / Node fetch 去够 GitHub。** 本机 schannel 的
-  证书吊销检查（`CRYPT_E_NO_REVOCATION_CHECK`）会把它们全挡下，报的还是笼统的
-  `fetch failed`。只有 git 自带的 libcurl 不受影响。要下二进制走镜像
-  （`scripts/dist.mjs` 已注入 npmmirror）。
+- **shell 侧的 curl / Invoke-WebRequest 够不到 GitHub** —— 本机 schannel 的证书吊销
+  检查（`CRYPT_E_NO_REVOCATION_CHECK`）会把它们挡下，报的还是笼统的 `fetch failed`。
+  但 **`node:https` 能通 `api.github.com`**：2026-09-30 实测用它列 Actions runs、
+  查 Release 资产都正常。本机没有 `gh`（见 §3.1），查 CI 状态就走这条路（§3.4）。
+  要下二进制仍走镜像（`scripts/dist.mjs` 已注入 npmmirror）。
 - **GitHub 会偶发 502**（API 和 git 都可能）：`gh run list` / `gh release view` /
   `ls-remote` 都可能撞上 `HTTP 502 Bad Gateway`。**等 20 秒重试一次**，
   不要据此判定「发布失败」。
@@ -97,9 +115,26 @@ $env:WATER_SMOKE_TEST = "1"
 
 ## 3. GitHub 操作（重点）
 
-### 3.1 推送代码：唯一可行的非交互路径
+### 3.1 推送代码：先试 SSH，不行再退 gh
 
-SSH 不可用、HTTPS 又没有缓存凭据（仓库里配的 `credential.helper=manager`，
+**首选 SSH**（2026-09-30 实测 main 与 tag 都一次成功）。仓库的 `origin` 常态就是
+SSH 地址，直接推，不用改 remote：
+
+```bash
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=15" \
+  timeout 90 git push origin main 2>&1 | tail -20
+echo "exit=${PIPESTATUS[0]}"     # 管道吃掉了退出码，必须取 PIPESTATUS 才是 git 的
+```
+
+- 推之前先 `git ls-remote git@github.com:FightZhanAng/water-reminder.git` 验一下通道（§2.2）。
+- `BatchMode=yes` + `GIT_TERMINAL_PROMPT=0`：宁可失败也别挂在那儿等输入。
+
+**备用路径：HTTPS + gh 的凭据助手。** （2026-09-30 本机**已经装不到 gh** ——
+`/c/Program Files/GitHub CLI/` 不存在，C 盘深度 4、D 盘深度 3 都没搜到，
+所以在重新装上之前这条路走不通改用 §3.4 查结果。下面这份记录留着，
+换机器或重装 gh 之后还能用。）
+
+SSH 不走、HTTPS 又没有缓存凭据（仓库里配的 `credential.helper=manager`，
 但 PATH 里没有 `git-credential-manager`，会退化成终端提示而失败）。可用的是
 **已经登录的 `gh` CLI**（账号 FightZhanAng，token 带 `repo` 权限）：
 
@@ -141,7 +176,9 @@ echo "exit=${PIPESTATUS[0]}"          # 管道吃掉了退出码，必须取 PIP
 git remote set-url origin "$ORIG"     # 无论成败都要还原
 ```
 
-- Bash 的 PATH 里有 `gh`（`/c/Program Files/GitHub CLI/gh`），凭据助手照常工作。
+- 代理执行器的 Bash 侧 PATH 里没有 GitHub CLI 目录 —— 2026-09-30 实测
+  `gh auth git-credential` 报 `gh: command not found`，`which gh` 也找不到，
+  所以走备用路径前先 `which gh` 确认它还在。
 - `... | tail` 之后看 `$?` 拿到的是 `tail` 的退出码，会误判成成功。
 
 ### 3.2 报错对照表
@@ -156,6 +193,8 @@ git remote set-url origin "$ORIG"     # 无论成败都要还原
 | `Cannot read properties of undefined (reading 'isPackaged')` | `ELECTRON_RUN_AS_NODE` | §2.1 |
 | `HTTP 502 Bad Gateway`（gh / git） | GitHub 瞬时故障 | 等 20 秒重试一次 |
 | `gh run watch --exit-status` 退出 1，但只有 annotations 报 502 | 同上，**不是** run 失败 | 用 `gh run list --limit 3` 复核 |
+| `gh: command not found`（凭据助手指向 gh 时） | 本机没装 gh（§3.1） | 推送改走 SSH；查 CI 结果走 §3.4 |
+| `[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: ...` | pnpm 10+ 不读 package.json 里的白名单 | 写进 `pnpm-workspace.yaml` 的 `allowBuilds`（§1） |
 
 ### 3.3 tag 与触发条件
 
@@ -181,6 +220,24 @@ git remote set-url origin "$ORIG"     # 无论成败都要还原
   第二次 run 会 `--clobber` 重新上传两个产物，结束后 `state=uploaded` 正常。
   改之前先确认上一次 run 已经结束 —— 在跑的 run 按 tag 名 checkout，动 tag 会让它失败。
 
+### 3.4 查 CI 结果：本机没有 gh 时用 API
+
+`gh` 已经装不到了（§3.1），验证发布改用 Node 自带的 `node:https` 打 api.github.com ——
+公开仓库匿名可读，限流 60 次/小时，15 秒轮询一次完全够（§2.2 实测可用）：
+
+| 目的 | 路径 |
+| --- | --- |
+| 最近几次 run | `/repos/FightZhanAng/water-reminder/actions/runs?per_page=3` |
+| 单次 run 状态 | `/repos/.../actions/runs/<id>` → `status` / `conclusion` |
+| 每个 step 的结论 | `/repos/.../actions/runs/<id>/jobs` |
+| Release 资产 | `/repos/.../releases/tags/vX.Y.Z` → `assets[]` |
+
+正常结果：run `completed / success`，job「构建并发布 Windows 安装包」`success`，
+Release `draft=false`，两个产物各约 95 MB：
+
+- `water-reminder-X.Y.Z-setup.exe`（NSIS 安装包）
+- `water-reminder-X.Y.Z-portable.exe`（免安装单文件）
+
 ---
 
 ## 4. 发版流程
@@ -200,7 +257,7 @@ git tag -a vX.Y.Z -m "喝水提醒 X.Y.Z"
 # 5) 验证（见下）
 ```
 
-验证三件套（缺一不可，`gh` 已登录）：
+验证三件套（缺一不可；装了 `gh` 就用下面这套，本机没装则走 §3.4 的 API）：
 
 ```powershell
 gh run list --limit 3                                        # status / conclusion
