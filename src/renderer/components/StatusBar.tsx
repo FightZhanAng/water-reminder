@@ -1,4 +1,4 @@
-import { formatSize, type UpdateCheck, type UpdateDownload } from '@shared/update'
+import { describeDownload, type UpdateCheck, type UpdateDownload } from '@shared/update'
 
 interface StatusBarProps {
   version: string
@@ -39,45 +39,39 @@ export default function StatusBar({
   const downloading = download.state === 'downloading' ? download : null
   const verifying = download.state === 'verifying'
   const installing = download.state === 'installing'
-  const downloadFailed = download.state === 'error' ? download : null
+
+  /*
+   * 下载链路的显示口径全部从 shared 的 describeDownload 派生（「关于」弹窗
+   * 共用同一份），这里只补它管不到的检查链路 —— 两条链路谁在台前就显示谁，
+   * 下载链路 idle 时 text 为 null，正好让位。
+   */
+  const dl = describeDownload(download)
 
   // 校验和安装没法报百分比（前者是一瞬间的摘要比对，后者是等安装器接过去），
-  // 但都属于「正在进行」，所以和下载一样占住按钮
-  const busy = Boolean(downloading) || verifying || installing
+  // 但都属于「正在进行」，和下载一样占住按钮
+  const busy = dl.busy
   const ratio = downloading ? percentOf(downloading.received, downloading.total) : 0
 
-  const text = installing
-    ? `正在安装 ${download.latest}，应用即将重启…`
-    : verifying
-      ? '正在校验安装包…'
-      : downloading
-        ? `正在下载 ${downloading.latest}　${formatSize(downloading.received)}${
-            downloading.total > 0 ? ` / ${formatSize(downloading.total)}` : ''
-          }`
-        : downloadFailed
-          ? `更新失败：${downloadFailed.reason}`
-          : checking
-            ? '正在检查…'
-            : pending
-              ? `有新版本 ${pending.latest}`
-              : checkFailed
-                ? `检查失败：${checkFailed.reason}`
-                : update
-                  ? '已是最新'
-                  : ''
+  const checkText = checking
+    ? '正在检查…'
+    : pending
+      ? `有新版本 ${pending.latest}`
+      : checkFailed
+        ? `检查失败：${checkFailed.reason}`
+        : update
+          ? '已是最新'
+          : ''
+
+  const text = dl.text ?? checkText
 
   const tone =
-    busy || (pending && !downloadFailed)
+    dl.busy || (pending && !dl.failed)
       ? ' is-update'
-      : checkFailed || downloadFailed
+      : checkFailed || dl.failed
         ? ' is-error'
         : ''
 
-  const title = downloadFailed
-    ? downloadFailed.reason
-    : checkFailed
-      ? checkFailed.reason
-      : undefined
+  const title = dl.failed ?? checkFailed?.reason ?? undefined
 
   return (
     <footer className="statusbar">
@@ -98,7 +92,7 @@ export default function StatusBar({
       <span className="statusbar-version" title={`喝水提醒 ${version}`}>
         v{version}
       </span>
-      <span className="statusbar-state" role="status" aria-live="polite">
+      <span className="statusbar-state">
         {text && (
           <span className={`statusbar-text${tone}`} title={title}>
             {text}
@@ -114,7 +108,7 @@ export default function StatusBar({
           </button>
         ) : pending?.asset ? (
           <button type="button" className="btn btn-sm" onClick={onDownload}>
-            {downloadFailed ? '重试下载' : '下载并安装'}
+            {dl.failed ? '重试下载' : '下载并安装'}
           </button>
         ) : pending ? (
           // 发布时漏了可直接安装的包。退回手动下载，总比给一个错的包强
@@ -131,6 +125,15 @@ export default function StatusBar({
             {checkFailed ? '重试' : '检查更新'}
           </button>
         )}
+      </span>
+      {/*
+        aria-live 单独放在 sr-only 元素里、且只装「相位」文案：
+        挂在 .statusbar-state 上的话，120ms 一次的字节数刷新会全部进读屏器，
+        一场 95MB 的下载等于让屏幕阅读器念几百遍进度。相位在下载期间不变，
+        内容不变就不会重复播报。
+      */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {dl.phase ?? checkText}
       </span>
     </footer>
   )

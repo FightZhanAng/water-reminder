@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { UpdateCheck, UpdateDownload } from '@shared/update'
+import { describeDownload, type UpdateCheck, type UpdateDownload } from '@shared/update'
 import DropMark from './DropMark'
 
 interface AboutMenuProps {
@@ -33,26 +33,6 @@ const UPDATE_TEXT: Record<UpdateCheck['state'], string> = {
   update: '有新版本',
   current: '已是最新',
   error: '检查失败'
-}
-
-/**
- * 下载四态在「关于」里的一句话说法。
- * 这一层不做进度百分比 —— 状态栏本来就在盯着这件事，弹窗里再放一条进度条
- * 只会让人不知道该看哪个。这里只回答「现在能不能关掉这个窗口」。
- */
-function downloadLine(download: UpdateDownload): string {
-  switch (download.state) {
-    case 'downloading':
-      return `正在下载 ${download.latest}…`
-    case 'verifying':
-      return '正在校验安装包…'
-    case 'installing':
-      return `正在安装 ${download.latest}，应用即将重启…`
-    case 'error':
-      return `更新失败：${download.reason}`
-    default:
-      return ''
-  }
 }
 
 /**
@@ -113,11 +93,11 @@ export default function AboutMenu({
    * 整条链路上最容易断的就是这一步。只有发布时漏了安装包（asset 为 null）才退回发布页。
    */
   const canInstall = Boolean(pending?.asset)
-  const busy =
-    download.state === 'downloading' ||
-    download.state === 'verifying' ||
-    download.state === 'installing'
-  const downloadFailed = download.state === 'error'
+  // 下载链路的口径与状态栏共用 describeDownload —— 两边各写一遍的后果是
+  // 改文案时漏一边：弹窗说「下载中」，状态栏却报「更新失败」
+  const dl = describeDownload(download)
+  const busy = dl.busy
+  const downloadFailed = dl.failed !== null
 
   const label = busy
     ? download.state === 'installing'
@@ -133,7 +113,9 @@ export default function AboutMenu({
         ? '正在检查…'
         : '检查更新'
 
-  const note = downloadLine(download) || (canInstall ? `可在应用内更新到 ${pending?.latest}` : '')
+  // 相位级文案不含字节数 —— 状态栏本来就在盯进度，弹窗里再刷一遍
+  // 只会让人不知道该看哪个。这里只回答「现在能不能关掉这个窗口」。
+  const note = dl.phase ?? (canInstall ? `可在应用内更新到 ${pending?.latest}` : '')
 
   return (
     <div className="menu" ref={rootRef}>

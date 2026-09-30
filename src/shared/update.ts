@@ -1,5 +1,6 @@
 /**
- * 更新检查里与网络无关的纯逻辑：版本号解析与比较、发布资产挑选、digest 解析、地址白名单。
+ * 更新链路里与网络无关的纯逻辑：版本号解析与比较、发布资产挑选、digest 解析、
+ * 地址白名单、下载校验与显示文案派生。
  *
  * 放 shared 是为了能脱离 Electron 直接跑测试（见 scripts/core-test.ts）——
  * 这几样写错了都不会报错，只会静默跑偏：
@@ -166,4 +167,104 @@ export function isNewer(candidate: unknown, current: unknown): boolean {
     if (a !== b) return a > b
   }
   return false
+}
+
+/* ------------------------------------------------------------ 校验与文案派生 */
+
+/**
+ * 下载完成后的体积与摘要校验，返回人话的失败原因；都过关返回 null。
+ *
+ * 从主进程搬来 shared 的理由：这是纯比较逻辑，留在主进程就只能靠整条链路
+ * 真跑才测得到，搬出来就能逐个分支钉死（少了多少字节、摘要对不上、发布方没给摘要）。
+ * PE 头检查要真开文件，只能留在主进程。
+ */
+export function sizeOrDigestProblem(
+  asset: Pick<UpdateAsset, 'size' | 'sha256'>,
+  received: number,
+  digest: string
+): string | null {
+  if (asset.size > 0 && received !== asset.size) {
+    const missing = asset.size - received
+    return missing > 0
+      ? `安装包下载不完整（少了 ${formatSize(missing)}）`
+      : '安装包大小与发布信息不符'
+  }
+  if (asset.sha256 && digest !== asset.sha256) {
+    return '安装包校验失败'
+  }
+  return null
+}
+
+/**
+ * 把底层网络报错翻成人话。
+ *
+ * 「fetch failed」「net::ERR_CERT_AUTHORITY_INVALID」这类原文对用户没有任何指导
+ * 意义 —— 他不知道该去检查网络、代理还是证书。认得出的情况给一句能行动的，
+ * 认不出的照原样透传。搬来 shared 是为了让这几句文案的口径进 core-test。
+ */
+export function humanizeNetworkError(
+  raw: string,
+  aborted: boolean,
+  what: '检查' | '下载'
+): string {
+  if (aborted) return what === '下载' ? '下载超时' : '请求超时'
+  if (/fetch failed|net::ERR_|ENOTFOUND|ECONNREFUSED|ECONNRESET|CERT_|certificate/i.test(raw)) {
+    return '连不上 GitHub，检查网络或代理'
+  }
+  return raw
+}
+
+/**
+ * `describeDownload` 的返回：一次下载状态的「全部显示口径」一次算清。
+ *
+ * 拆成四个字段而不是只有一个 text，是因为消费方要的不一样：
+ * 状态栏要带字节数的完整进度；「关于」弹窗和读屏器只要相位 ——
+ * 少了这层区分，要么弹窗跟着 120ms 刷一次，要么读屏器把字节数念成洪水。
+ */
+export interface DownloadSummary {
+  /** 下载/校验/安装任一进行中 —— 按钮要占住，不给重复点击留缝 */
+  busy: boolean
+  /** 下载链路的失败原因；没失败为 null（检查失败不在这，那是 UpdateCheck 的事） */
+  failed: string | null
+  /** 状态栏完整文案（下载中带字节数）；idle 时为 null，让位给检查链路的文案 */
+  text: string | null
+  /** 相位级短文案（不含字节数）：「关于」弹窗与 aria-live 播报共用；idle 为 null */
+  phase: string | null
+}
+
+/**
+ * 从下载状态派生显示文案。状态栏和「关于」弹窗共用这一份派生 ——
+ * 在这之前两边各写了一遍三元链，改口径时漏掉一边就是
+ * 「弹窗说下载中、状态栏说更新失败」。
+ */
+export function describeDownload(download: UpdateDownload): DownloadSummary {
+  switch (download.state) {
+    case 'downloading':
+      return {
+        busy: true,
+        failed: null,
+        text: `正在下载 ${download.latest}　${formatSize(download.received)}${
+          download.total > 0 ? ` / ${formatSize(download.total)}` : ''
+        }`,
+        phase: `正在下载 ${download.latest}…`
+      }
+    case 'verifying':
+      return { busy: true, failed: null, text: '正在校验安装包…', phase: '正在校验安装包…' }
+    case 'installing':
+      return {
+        busy: true,
+        failed: null,
+        text: `正在安装 ${download.latest}，应用即将重启…`,
+        phase: `正在安装 ${download.latest}，应用即将重启…`
+      }
+    case 'error':
+      return {
+        busy: false,
+        failed: download.reason,
+        text: `更新失败：${download.reason}`,
+        phase: `更新失败：${download.reason}`
+      }
+    default:
+      return { busy: false, failed: null, text: null, phase: null }
+  }
 }

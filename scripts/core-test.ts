@@ -13,13 +13,16 @@ import { parseHolidayPayload, resolveWorkday } from '../src/shared/holiday'
 import { recentDays, streakDays } from '../src/shared/stats'
 import { isThemePref, THEME_PREFS } from '../src/shared/theme'
 import {
+  describeDownload,
   formatSize,
+  humanizeNetworkError,
   isNewer,
   isTrustedAssetUrl,
   isTrustedReleaseUrl,
   parseSha256Digest,
   parseVersion,
-  pickUpdateAsset
+  pickUpdateAsset,
+  sizeOrDigestProblem
 } from '../src/shared/update'
 import type { DrinkLog, Settings } from '../src/shared/types'
 
@@ -235,6 +238,56 @@ check('4MB 的假包', formatSize(4194304), '4.0 MB')
 check('95.4MB 的真安装包', formatSize(100031843), '95.4 MB')
 check('刚好 100MB 起去掉小数', formatSize(100 * 1024 * 1024), '100 MB')
 check('192MB', formatSize(201326592), '192 MB')
+
+console.log('\n--- 下载状态文案派生（状态栏 / 关于弹窗共用） ---')
+// 两处界面共用 describeDownload，这里把每种状态的输出逐字钉死：
+// 文案是拼接出来的（版本号、字节数、全角空格），任何一环改动都该在这里被看见
+const dlIdle = describeDownload({ state: 'idle' })
+check('idle 不占按钮', dlIdle.busy, false)
+check('idle 没有完整文案（让位给检查链路）', dlIdle.text, null)
+check('idle 没有相位文案', dlIdle.phase, null)
+check(
+  '下载中带字节数',
+  describeDownload({ state: 'downloading', latest: '9.9.9', received: 1024, total: 4096 }).text,
+  '正在下载 9.9.9　1 KB / 4 KB'
+)
+check(
+  '服务端没给总大小时不拼分母',
+  describeDownload({ state: 'downloading', latest: '9.9.9', received: 512, total: 0 }).text,
+  '正在下载 9.9.9　512 B'
+)
+check(
+  '下载中的相位文案不含字节数 —— 读屏器只念一次，不跟 120ms 进度刷屏',
+  describeDownload({ state: 'downloading', latest: '9.9.9', received: 1, total: 2 }).phase,
+  '正在下载 9.9.9…'
+)
+check('校验中', describeDownload({ state: 'verifying', latest: '9.9.9' }).text, '正在校验安装包…')
+check(
+  '安装中',
+  describeDownload({ state: 'installing', latest: '9.9.9' }).phase,
+  '正在安装 9.9.9，应用即将重启…'
+)
+check('失败原因进 failed（按钮重试文案和 tone 靠它派生）', describeDownload({ state: 'error', reason: '下载超时' }).failed, '下载超时')
+check('失败文案带前缀', describeDownload({ state: 'error', reason: '下载超时' }).text, '更新失败：下载超时')
+check('失败时不再占按钮（让位给「重试下载」）', describeDownload({ state: 'error', reason: 'x' }).busy, false)
+
+console.log('\n--- 体积与摘要校验 ---')
+check('体积摘要都对得上', sizeOrDigestProblem({ size: 100, sha256: 'aa' }, 100, 'aa'), null)
+check('少了字节报缺口', sizeOrDigestProblem({ size: 4096, sha256: null }, 0, ''), '安装包下载不完整（少了 4 KB）')
+check('多出字节也拒', sizeOrDigestProblem({ size: 100, sha256: null }, 200, ''), '安装包大小与发布信息不符')
+check('体积过关但摘要不符', sizeOrDigestProblem({ size: 100, sha256: 'aa' }, 100, 'bb'), '安装包校验失败')
+check('发布方没给摘要时只查体积', sizeOrDigestProblem({ size: 100, sha256: null }, 100, 'whatever'), null)
+check('体积未知（0）时跳过体积判定', sizeOrDigestProblem({ size: 0, sha256: null }, 12345, ''), null)
+check('体积未知但摘要不符照样拒', sizeOrDigestProblem({ size: 0, sha256: 'aa' }, 12345, 'bb'), '安装包校验失败')
+
+console.log('\n--- 网络报错翻人话 ---')
+check('检查超时', humanizeNetworkError('The operation was aborted', true, '检查'), '请求超时')
+check('下载超时', humanizeNetworkError('The operation was aborted', true, '下载'), '下载超时')
+check('fetch failed', humanizeNetworkError('fetch failed', false, '检查'), '连不上 GitHub，检查网络或代理')
+check('Chromium 网络错误', humanizeNetworkError('net::ERR_CERT_AUTHORITY_INVALID', false, '下载'), '连不上 GitHub，检查网络或代理')
+check('DNS 解析失败', humanizeNetworkError('getaddrinfo ENOTFOUND api.github.com', false, '检查'), '连不上 GitHub，检查网络或代理')
+check('连接被重置', humanizeNetworkError('read ECONNRESET', false, '下载'), '连不上 GitHub，检查网络或代理')
+check('认不出的原文照原样透传', humanizeNetworkError('GitHub 返回 403', false, '检查'), 'GitHub 返回 403')
 
 console.log('\n--- 节假日/调休：解析与判定 ---')
 // 夹具取自 timor.tech 真实的 2026 年数据（元旦 1/1~1/3 休、1/4 周日补班；

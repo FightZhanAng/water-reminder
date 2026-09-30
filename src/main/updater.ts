@@ -2,15 +2,16 @@ import { app, net } from 'electron'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFile, mkdir, open, readdir, rm, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
-  formatSize,
+  humanizeNetworkError,
   isNewer,
   isTrustedAssetUrl,
   isTrustedReleaseUrl,
   parseSha256Digest,
   parseVersion,
   pickUpdateAsset,
+  sizeOrDigestProblem,
   RELEASES_PAGE,
   REPO,
   REPO_PAGE,
@@ -143,7 +144,7 @@ export async function checkForUpdate(current: string): Promise<UpdateCheck> {
     }
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err)
-    return { state: 'error', reason: humanize(raw, controller.signal.aborted, '检查') }
+    return { state: 'error', reason: humanizeNetworkError(raw, controller.signal.aborted, '检查') }
   } finally {
     clearTimeout(timer)
   }
@@ -235,7 +236,10 @@ export async function downloadUpdate(
     throw new Error('下载地址不在白名单里')
   }
 
-  const file = join(await resolveDownloadDir(), asset.name)
+  // 文件名必须取 basename：白名单校验的是 url 字段，不是这里的文件名 ——
+  // 一个带 ..\ 的 name 能同时过后缀匹配和 URL 白名单，不剥掉路径段
+  // 就能把安装包写到下载目录之外再被执行。
+  const file = join(await resolveDownloadDir(), basename(asset.name))
   await rm(file, { force: true })
 
   const controller = new AbortController()
@@ -281,12 +285,13 @@ export async function downloadUpdate(
   } catch (err) {
     await rm(file, { force: true }).catch(() => undefined)
     const raw = err instanceof Error ? err.message : String(err)
-    throw new Error(humanize(raw, controller.signal.aborted, '下载'))
+    throw new Error(humanizeNetworkError(raw, controller.signal.aborted, '下载'))
   } finally {
     clearTimeout(timer)
   }
 
-  const problem = await inspectDownload(file, asset, received, hash.digest('hex'))
+  // 体积与摘要的判定在 shared（纯逻辑，进 core-test）；PE 头要真开文件，留在这里
+  const problem = sizeOrDigestProblem(asset, received, hash.digest('hex')) ?? (await peHeadProblem(file))
   if (problem) {
     await rm(file, { force: true }).catch(() => undefined)
     throw new Error(problem)
@@ -295,28 +300,13 @@ export async function downloadUpdate(
 }
 
 /**
- * 返回人话描述的失败原因；没问题返回 null。
+ * PE 头检查：下载下来的头两个字节必须是 `MZ`，否则不是 Windows 可执行文件。
  *
- * 这几句话会被原样塞进 440px 宽的状态栏，所以刻意写得短：
- * 早先那版是「应为 4198400 字节，实际收到 4194304」，直接被省略号吃掉后半截 ——
- * 唯一有信息量的数字全没了。缺多少用 `formatSize` 折算成「少了 4 KB」这种。
+ * 体积和摘要的判定在 shared 的 `sizeOrDigestProblem`（纯逻辑，进 core-test）；
+ * 这一项要真开文件读字节，只能留在主进程。它兜的是摘要缺失的情况 ——
+ * 老 release 没有 `digest` 字段，而错误页/登录页会被安安静静地存成 .exe。
  */
-async function inspectDownload(
-  file: string,
-  asset: UpdateAsset,
-  received: number,
-  digest: string
-): Promise<string | null> {
-  if (asset.size > 0 && received !== asset.size) {
-    const missing = asset.size - received
-    return missing > 0
-      ? `安装包下载不完整（少了 ${formatSize(missing)}）`
-      : '安装包大小与发布信息不符'
-  }
-  if (asset.sha256 && digest !== asset.sha256) {
-    return '安装包校验失败'
-  }
-
+async function peHeadProblem(file: string): Promise<string | null> {
   const handle = await open(file, 'r')
   try {
     const head = Buffer.alloc(2)
@@ -396,18 +386,4 @@ export function launchAfterExit(target: string): void {
   child.unref()
   // 先留一行，好知道助手至少是起来了（它自己会接着往下写）
   void appendFile(logPath, `${new Date().toISOString()} helper spawned\n`).catch(() => undefined)
-}
-
-/**
- * 把底层报错翻成人话。
- *
- * 「fetch failed」「net::ERR_CERT_AUTHORITY_INVALID」这类原文对用户没有任何指导意义 ——
- * 他不知道该去检查网络、代理还是证书。认得出的情况给一句能行动的，认不出的照原样透传。
- */
-function humanize(raw: string, aborted: boolean, what: '检查' | '下载'): string {
-  if (aborted) return what === '下载' ? '下载超时' : '请求超时'
-  if (/fetch failed|net::ERR_|ENOTFOUND|ECONNREFUSED|ECONNRESET|CERT_|certificate/i.test(raw)) {
-    return '连不上 GitHub，检查网络或代理'
-  }
-  return raw
 }
