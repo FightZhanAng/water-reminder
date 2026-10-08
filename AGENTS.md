@@ -115,11 +115,17 @@ ELECTRON_RUN_AS_NODE=1 ./release/win-unpacked/water-reminder.exe -e "<脚本>" a
   `HostName ssh.github.com / Port 443`（22 端口不通）。所以：**先跑一次 `ls-remote`**，
   通了就走 SSH（§3.1 的首选路径），卡住或 255 再换备用路径，别反复重试同一招。
 - **HTTPS 读是通的**（`git ls-remote https://...` 匿名可读，仓库是 public）。
-- **shell 侧的 curl / Invoke-WebRequest 够不到 GitHub** —— 本机 schannel 的证书吊销
-  检查（`CRYPT_E_NO_REVOCATION_CHECK`）会把它们挡下，报的还是笼统的 `fetch failed`。
-  但 **`node:https` 能通 `api.github.com`**：2026-09-30 实测用它列 Actions runs、
-  查 Release 资产都正常。本机没有 `gh`（见 §3.1），查 CI 状态就走这条路（§3.4）。
-  要下二进制仍走镜像（`scripts/dist.mjs` 已注入 npmmirror）。
+- **本机到 GitHub 的 TLS 被一个本地代理终结**（`api.github.com` 证书签发者实测为
+  `CN=SteamTools Certificate`，2026-10-08）。各工具信任情况是分裂的，按工具选路：
+  - **`node:https` 裸跑不通**（`UNABLE_TO_VERIFY_LEAF_SIGNATURE` —— Node 自带的
+    CA 列表不认这个代理根）。**必须带 `--use-system-ca`** 走 Windows 证书库，
+    实测 200。§3.4 的脚本命令已经带上这个 flag
+  - PowerShell 的 `Invoke-WebRequest` 能通（schannel + Windows 证书库，实测 200）
+  - `curl` 仍不通（schannel 吊销检查 `CRYPT_E_NO_REVOCATION_CHECK`）
+  - 本机没有 `gh`（见 §3.1），查 CI 状态就走 §3.4 的脚本
+  - **2026-09-30 记的「IWR 够不到 GitHub、只有 git 和 gh 能通」已过时** ——
+    代理是后装/后启用的，旧结论别再照抄，以本份为准。要下二进制仍走镜像
+    （`scripts/dist.mjs` 已注入 npmmirror）
 - **GitHub 会偶发 502**（API 和 git 都可能）：`gh run list` / `gh release view` /
   `ls-remote` 都可能撞上 `HTTP 502 Bad Gateway`。**等 20 秒重试一次**，
   不要据此判定「发布失败」。
@@ -252,9 +258,9 @@ git remote set-url origin "$ORIG"     # 无论成败都要还原
 | Release 资产 | `/repos/.../releases/tags/vX.Y.Z` → `assets[]` |
 
 现成脚本：`~/.workbuddy/skills/github-release-verify/scripts/check-release.cjs` ——
-等 run 跑完 + 报各 job 结论 + 报 Release 资产，仓库从 `origin` 推导，
+等 run 跑完 + 报各 job 结论（失败点名到步骤）+ 报 Release 资产，仓库从 `origin` 推导，
 tag 取 `package.json` 的 `version`，run 按 `head_branch == tag` 自动发现。
-不用再每次现写轮询。
+**必须用 `node --use-system-ca` 跑**（原因见 §2.2），不用再每次现写轮询。
 
 **别把 tag 写死在脚本里。** 之前那版硬编码成 `v0.7.0`，发 0.8.0 时忘了改，
 它静默去查了**上一个** Release，输出看起来完全正常 —— 这种错最难发现。
@@ -292,14 +298,16 @@ gh run watch <run-id> --interval 15                          # 阻塞到结束
 gh release view vX.Y.Z --json tagName,isDraft,createdAt,assets
 ```
 
-本机没装 `gh`，跑技能里那个现成脚本就等价于上面三条（退出码非 0 即失败）：
+本机没装 `gh`，跑技能里那个现成脚本就等价于上面三条（退出码非 0 即失败）。
+**记得带 `--use-system-ca`**（原因见 §2.2）：
 
 ```bash
-node ~/.workbuddy/skills/github-release-verify/scripts/check-release.cjs
+node --use-system-ca ~/.workbuddy/skills/github-release-verify/scripts/check-release.cjs
 ```
 
 正常结果：run `completed / success`，Release `isDraft=false`，
-并且有**四个**产物：
+并且有**四个**产物（2026-10-08 v0.10.0 实测：两 job 全绿，四个产物
+setup 95.5 MB / portable 95.3 MB / arm64.dmg 114.7 MB / x64.dmg 116.7 MB）：
 
 - `water-reminder-X.Y.Z-setup.exe`（NSIS 安装包）
 - `water-reminder-X.Y.Z-portable.exe`（免安装单文件）
