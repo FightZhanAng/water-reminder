@@ -1,6 +1,6 @@
 {
   "name": "water-reminder",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "桌面喝水提醒 —— 托盘水位水滴 / 系统通知 / 桌面小水滴",
   "author": "tomcato",

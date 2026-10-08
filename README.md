@@ -46,9 +46,9 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 
 | 文件 | 说明 |
 | --- | --- |
-| `water-reminder-0.9.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
-| `water-reminder-0.9.0-portable.exe` | 免安装单文件版，双击直接跑 |
-| `water-reminder-0.9.0-x64.nsis.7z` | 安装包的载荷数据 |
+| `water-reminder-0.10.0-setup.exe` | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-0.10.0-portable.exe` | 免安装单文件版，双击直接跑 |
+| `water-reminder-0.10.0-x64.nsis.7z` | 安装包的载荷数据 |
 | `win-unpacked/` | 免安装的解包版本，双击里面的 `water-reminder.exe` 直接跑 |
 
 首次打包会从镜像下载 winCodeSign / nsis / electron 等二进制到
@@ -59,8 +59,8 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 推一个 `v*` 的 tag 就会触发 GitHub Actions，构建并把安装包挂到 Release 上：
 
 ```bash
-git tag -a v0.9.0 -m "喝水提醒 0.9.0"
-git push origin v0.9.0
+git tag -a v0.10.0 -m "喝水提醒 0.10.0"
+git push origin v0.10.0
 ```
 
 工作流在 `.github/workflows/release.yml`，两个 job **串行**（Windows 先、macOS 后，
