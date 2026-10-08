@@ -30,7 +30,7 @@ pnpm typecheck        # 类型检查（主进程 / 渲染层分别检查）
 pnpm test:core        # 核心逻辑无头测试（提醒点计算 + 统计聚合）
 pnpm gen:icons        # 重新生成图标资源
 pnpm build            # 产出 out/，可直接 run
-pnpm dist             # 打 Windows 安装包 + 便携版，输出到 release/
+pnpm dist             # 打当前平台的安装包，输出到 release/（本机出 Windows 包，macOS 包由 CI 出）
 ```
 
 `pnpm dist` 不直接调 electron-builder，而是走 `scripts/dist.mjs`。
@@ -56,20 +56,53 @@ Node，启动即崩，而且报错看不出原因 —— 详见「环境注意�
 
 ### 发布版本
 
-推一个 `v*` 的 tag 就会触发 GitHub Actions，在 `windows-latest` 上重新构建
-并把两个安装包挂到 Release 上：
+推一个 `v*` 的 tag 就会触发 GitHub Actions，构建并把安装包挂到 Release 上：
 
 ```bash
 git tag -a v0.9.0 -m "喝水提醒 0.9.0"
 git push origin v0.9.0
 ```
 
-工作流在 `.github/workflows/release.yml`，包含类型检查、核心逻辑测试和打包三步，
-任何一步失败都不会发布。
+工作流在 `.github/workflows/release.yml`，两个 job **串行**（Windows 先、macOS 后，
+Release 由 Windows job 创建——并发的话两边 `gh release create` 会撞车），
+都包含类型检查、核心逻辑测试和打包三步，任何一步失败都不会发布。
+最终 Release 上有四个产物：
+
+| 文件 | 构建机器 | 说明 |
+| --- | --- | --- |
+| `water-reminder-X.Y.Z-setup.exe` | windows-latest | NSIS 安装包（约 100 MB），可选安装目录、建桌面快捷方式 |
+| `water-reminder-X.Y.Z-portable.exe` | windows-latest | 免安装单文件版，双击直接跑 |
+| `water-reminder-X.Y.Z-arm64.dmg` | macos-latest | macOS 安装包（Apple Silicon），**未签名** |
+| `water-reminder-X.Y.Z-x64.dmg` | macos-latest | macOS 安装包（Intel），**未签名** |
 
 之所以不"本地打完包再上传"：这台开发机除了 git 自己的 libcurl，
 所有到 GitHub 的 HTTPS 通道都被证书吊销检查挡住了，而 Release 资产只能走 HTTP 上传
 （SSH 管不了）。交给 CI 反而更省事，也顺带保证 Release 里的包一定能从源码重现。
+
+### macOS 包是未签名的
+
+没有 Apple Developer ID（$99/年），macOS 包**不打签名**：`electron-builder.yml` 里
+`mac.identity: null` 显式关掉，CI 上再配 `CSC_IDENTITY_AUTO_DISCOVERY=false` 双保险
+——不设这两样，electron-builder 会在钥匙串里找签名身份，找不到直接失败。
+构建完全正常，但首次打开会被 Gatekeeper 拦下。绕过方式（装完后执行其一）：
+
+```bash
+# 方式一（推荐）：移除隔离属性。把 App 拖进 /Applications 后执行
+xattr -d com.apple.quarantine "/Applications/喝水提醒.app"
+
+# 方式二：右键点 App → 打开。对「无法验证开发者」提示有效，
+# 对「已损坏，无法打开」无效 —— 那种情况只能走方式一
+```
+
+macOS 包还有两个**有意保留**的取舍（都算不上 bug，但也别当成完整支持）：
+
+- **应用内更新不可用**：更新链路整条是按 Windows 设计的（按 `-setup.exe` /
+  `-portable.exe` 后缀挑包、PE 头校验、拉起安装包），dmg 一条都匹配不上 →
+  检查到新版本时走既有的「打开发布页」退路，手动下载。渲染层不需要为 mac
+  写新逻辑，这条退路本来就有测试覆盖
+- **标题栏留位方向相反**：Windows 的 WCO 三键在右上（右侧留 152px），
+  macOS 的系统红绿灯在左上（`html.is-mac` 反向留 80px），`setTitleBarOverlay`
+  已按平台守卫（该方法标注 `@platform win32,linux`，mac 上调是未定义行为）
 
 ## 小水滴怎么才看得见
 
@@ -403,6 +436,9 @@ Node 对它的具名导出探测不生效，会直接报 `does not provide an ex
 
 ## 已知限制
 
+- **macOS 只是「能出包」级别。** dmg 由 CI 产出但未签名（见上文「macOS 包是未签名的」），
+  应用内更新退回打开发布页，托盘图标没做 macOS 模板色适配（深浅菜单栏下观感一般），
+  小水滴的透明/命中测试行为没有在真机上验证过 —— Windows 仍是第一公民。
 - **全屏检测未实现。** 判断「在开会 / 打游戏」需要读前台窗口标题，得依赖
   `active-win` 之类的原生模块。目前只用系统空闲时长做静默判断，够用但不够准。
 - **透明窗口会挡住点击。** Windows 不做逐像素命中测试，小水滴那 200×236 的矩形

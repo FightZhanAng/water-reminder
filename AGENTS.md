@@ -5,7 +5,8 @@
 只写**「不知道就会踩」的操作性规则**。架构、设计取舍、每个坑的完整成因链看
 [README.md](README.md)，这里不重复，只留「怎么做 / 别做什么」。
 
-本机是 Windows + PowerShell，项目只出 Windows 包。
+本机是 Windows + PowerShell。本地只打 Windows 包；macOS 包由 CI 的 tag 构建出来
+（macos-latest，未签名，见 §3.3 与 §4），本机没有打 mac 包的环境，别试。
 
 ---
 
@@ -213,6 +214,12 @@ git remote set-url origin "$ORIG"     # 无论成败都要还原
 `.github/workflows/release.yml` 的触发条件是 `on: push: tags: 'v*'`：
 
 - **任何 `v*` tag 推上去都会跑一次完整构建 + 发布**。别推临时 tag 试手。
+- **一个 tag 触发两个 job，串行**：`windows`（建 Release + 传两个 exe）→
+  `mac`（needs: windows，只 upload 两个 dmg）。mac job 不能改成和 windows 并发 ——
+  Release 由 windows job 创建，并发时 mac 先跑到 `gh release create` 就撞车。
+  Windows 失败则 mac 也不跑（发布全有或全无，可接受）。
+- **mac 包是未签名的**（`mac.identity: null` + `CSC_IDENTITY_AUTO_DISCOVERY=false`），
+  没有 Apple Developer ID，别在 CI 或本地试着配签名。
 - **已经推过的 tag 不要删了重推**：会再触发一次 run；如果第一次还在跑，
   删 tag 会让它的 checkout（按 tag 名检出）失败，留下一个红叉。
 - Release 创建是幂等的（`gh release view` 判断 + `--clobber`），重跑不会报错。
@@ -292,10 +299,11 @@ node ~/.workbuddy/skills/github-release-verify/scripts/check-release.cjs
 ```
 
 正常结果：run `completed / success`，Release `isDraft=false`，
-并且有**两个**产物：
+并且有**四个**产物：
 
 - `water-reminder-X.Y.Z-setup.exe`（NSIS 安装包）
 - `water-reminder-X.Y.Z-portable.exe`（免安装单文件）
+- `water-reminder-X.Y.Z-arm64.dmg` / `-x64.dmg`（macOS，未签名，CI 出）
 
 `package.json` 的 `dist` 脚本里的 `--publish never` 必须留着：CI 里推 tag 会触发
 electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发并因缺凭据失败，
@@ -410,8 +418,9 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
 
 ### 6.6 改图标只改 `scripts/gen-icons.mjs`，别手改 `resources/` 下的图
 
-`resources/` 里那 13 个图（`icon.png` / `icon.ico` / `tray-0..100.png`）全是生成产物。
-改了源脚本就跑 `pnpm gen:icons` 整体重出；手改单张图，下次生成就被覆盖。
+`resources/` 里那 14 个图（`icon.png` / `icon.ico` / `icon.icns` / `tray-0..100.png`）
+全是生成产物。改了源脚本就跑 `pnpm gen:icons` 整体重出；手改单张图，
+下次生成就被覆盖。
 
 三条只在改图标时才会撞上的坑：
 

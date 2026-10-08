@@ -298,6 +298,15 @@ dd {
 }
 
 /*
+ * macOS：红绿灯是系统画在左上角的（Windows 三键在右上），留位方向相反。
+ * 类由 main.tsx 按 UA 加，这里只改 padding —— 拖拽、高度、关于菜单的规则全部复用
+ */
+html.is-mac .titlebar {
+  padding-left: 80px;
+  padding-right: var(--sp-2);
+}
+
+/*
  * 工具栏：品牌 + 主题切换 + 暂停。
  *
  * 拖动由标题栏负责，这条不铺 drag —— 拖拽区上的按钮本来就要靠 no-drag 一个个摘出来，

@@ -42,3 +42,21 @@ nsis:
 
 portable:
   artifactName: water-reminder-${version}-portable.${ext}
+
+mac:
+  # 未签名：没有 Apple Developer ID。identity: null 是 electron-builder 文档明示的
+  # 「跳过签名」开关，不设它 CI 上会去钥匙串里找签名身份然后整个 job 失败。
+  # 代价是首次打开要过 Gatekeeper，README 的「macOS 包是未签名的」一节写了绕法
+  identity: null
+  # 上面 win 注释里那颗 WASM 坑同样适用于 icns 转换 —— 由 scripts/gen-icons.mjs 直出
+  icon: resources/icon.icns
+  category: public.app-category.healthcare-fitness
+  # 文件名保持 ASCII（productName 是中文，别让它进 dmg 文件名）；
+  # arm64 覆盖 Apple Silicon、x64 覆盖 Intel。CI 的 macos-latest 是 arm 机器，
+  # 但打包纯 JS 应用不涉及本机编译，x64 照常出
+  artifactName: water-reminder-${version}-${arch}.${ext}
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64

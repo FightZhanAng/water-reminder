@@ -86,3 +86,74 @@ jobs:
             release/water-reminder-*-setup.exe \
             release/water-reminder-*-portable.exe \
             --clobber
+
+  # macOS 包跟在 Windows 后面串行跑：Release 由上面的 windows job 创建，
+  # 两个 job 并发的话会撞车（后到的一方 gh release create 报 already exists）。
+  # 代价是 Windows 失败时 macOS 也不跑 —— 发布本来就是全有或全无，可接受
+  mac:
+    name: 构建并发布 macOS 安装包（未签名）
+    needs: windows
+    runs-on: macos-latest
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # 双保险之一（另一半在 electron-builder.yml 的 mac.identity: null）：
+      # 不关掉的话 electron-builder 会在钥匙串里找签名身份，找不到直接失败
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # 和 windows job 同款理由：lock 有细微不一致时宁可现场解析，也别卡死发布
+      - name: 安装依赖
+        run: pnpm install --no-frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 核心逻辑测试
+        run: pnpm test:core
+
+      - name: 重新生成图标
+        run: pnpm gen:icons
+
+      # pnpm dist 不带平台参数，electron-builder 默认打当前平台，
+      # mac 机器上自动走 electron-builder.yml 的 mac 段（dmg × arm64/x64）
+      - name: 打包
+        run: pnpm dist
+        env:
+          # CI 直连 GitHub 官方源，不用国内镜像
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+
+      - name: 留档构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: water-reminder-${{ github.ref_name }}-macos
+          path: |
+            release/*-arm64.dmg
+            release/*-x64.dmg
+          if-no-files-found: error
+
+      # 这里只 upload 不 create：走到这一步时 windows job 已经建好了 Release
+      - name: 挂上 macOS 安装包
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          gh release upload "$TAG" \
+            release/water-reminder-*-arm64.dmg \
+            release/water-reminder-*-x64.dmg \
+            --clobber

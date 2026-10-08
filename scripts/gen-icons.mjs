@@ -4,6 +4,7 @@
  * 产出：
  *   resources/icon.png            256x256 应用图标（快捷方式、任务栏、窗口）
  *   resources/icon.ico            多尺寸 Windows 图标（16/24/32/48/64/128/256）
+ *   resources/icon.icns           macOS 图标（16..1024 全档，electron-builder 的 mac 目标用）
  *   resources/tray/tray-<n>.png   32x32 托盘水滴，n = 0,10,...,100 即水位刻度
  *
  * ── 应用图标：一颗装了水的玻璃水滴，全幅，不带底板 ──
@@ -29,12 +30,13 @@
  * 托盘只有 16px，还要落在深浅两种任务栏上。所以轮廓走中性冷灰、水色用青，
  * 达标才转荧光青绿。跟着深色板走的话，深色水滴落到深色任务栏上等于把图标删了。
  *
- * ── 为什么 ICO 也自己写 ──
+ * ── 为什么 ICO / ICNS 也自己写 ──
  *
- * electron-builder 默认用它的 WASM 图标工具做 png→ico 转换，那东西在内存受限的
- * 环境里会直接 `WebAssembly.Memory(): could not allocate memory` 把打包流程搞挂。
- * 自己生成 ICO 既绕开这个坑，也少一层依赖。另外自己画而不引入 sharp/canvas：
- * 那两个都是原生模块，一旦带上就得处理 electron-rebuild，为一个图标不值得。
+ * electron-builder 默认用它的 WASM 图标工具做 png→ico / png→icns 转换，那东西在
+ * 内存受限的环境里会直接 `WebAssembly.Memory(): could not allocate memory`
+ * 把打包流程搞挂。自己生成既绕开这个坑，也少一层依赖。另外自己画而不引入
+ * sharp/canvas：那两个都是原生模块，一旦带上就得处理 electron-rebuild，
+ * 为一个图标不值得。
  */
 import { deflateSync } from 'node:zlib'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -389,6 +391,47 @@ function encodeIco(frames) {
   return Buffer.concat([header, directory, ...frames.map((frame) => frame.data)])
 }
 
+/* ---------------------------------------------------------------- ICNS 编码 */
+
+/**
+ * macOS 应用图标。结构和 ICO 同级地简单：8 字节文件头（magic + 总长），
+ * 后面每块是「4 字节类型 + 4 字节块长（含这 8 字节头）+ 数据」。
+ * 现代 macOS 对所有类型都接受内嵌 PNG，不用像 ICO 那样手写 BMP 帧。
+ *
+ * 类型按 Apple 的 Icon Family 约定（ic11~ic14 是 1x 小尺寸的 @2x 版）：
+ *   ic04/ic05 = 16/32、ic07 = 128、ic08 = 256、ic09 = 512、ic10 = 1024（512@2x）
+ *   ic11/ic12 = 32/64（16/32 的 2x）、ic13/ic14 = 256/512（128/256 的 2x）
+ *
+ * electron-builder 对 mac.icon 的要求是「至少 512px」，ic09/ic10 两档满足它；
+ * 小档不齐的话系统会放大凑数，全档出齐是为了 Dock / 访达 / 预览的观感。
+ */
+const icnsTypes = [
+  ['ic04', 16],
+  ['ic05', 32],
+  ['ic07', 128],
+  ['ic08', 256],
+  ['ic09', 512],
+  ['ic10', 1024],
+  ['ic11', 32],
+  ['ic12', 64],
+  ['ic13', 256],
+  ['ic14', 512]
+]
+
+function encodeIcns(entries) {
+  const chunks = entries.map(([type, size]) => {
+    const png = encodePng(size, size, rasterize(size, appIconSampler))
+    const head = Buffer.alloc(8)
+    head.write(type, 0, 'ascii')
+    head.writeUInt32BE(png.length + 8, 4)
+    return Buffer.concat([head, png])
+  })
+  const header = Buffer.alloc(8)
+  header.write('icns', 0, 'ascii')
+  header.writeUInt32BE(8 + chunks.reduce((sum, chunk) => sum + chunk.length, 0), 4)
+  return Buffer.concat([header, ...chunks])
+}
+
 /* ------------------------------------------------------------------ 主流程 */
 
 // 大尺寸用 PNG 内嵌（体积小），小尺寸用 BMP（兼容性最好）
@@ -417,6 +460,9 @@ if (isDirectRun) {
   const icoPath = join(iconDir, 'icon.ico')
   writeFileSync(icoPath, encodeIco(icoFrames))
 
+  const icnsPath = join(iconDir, 'icon.icns')
+  writeFileSync(icnsPath, encodeIcns(icnsTypes))
+
   for (let percent = 0; percent <= 100; percent += 10) {
     const png = encodePng(32, 32, rasterize(32, dropLevelSampler(percent / 100)))
     writeFileSync(join(trayDir, `tray-${percent}.png`), png)
@@ -424,6 +470,7 @@ if (isDirectRun) {
 
   console.log(`icon  -> ${iconPath}`)
   console.log(`ico   -> ${icoPath} (${icoSizes.join('/')}, ${icoFrames.length} 帧)`)
+  console.log(`icns  -> ${icnsPath} (${icnsTypes.map(([t, s]) => `${t}:${s}`).join(' ')})`)
   console.log(`tray  -> ${trayDir}/tray-0..100.png (11 帧水位)`)
 }
 

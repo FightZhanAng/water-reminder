@@ -165,11 +165,17 @@ function currentTheme(): ResolvedTheme {
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
 }
 
-/** 主题变了要同步窗口底色和三键符号；跟随系统时，系统切换也走这里 */
+/**
+ * 主题变了要同步窗口底色和三键符号；跟随系统时，系统切换也走这里。
+ * setTitleBarOverlay 只在 Windows 存在（标注 @platform win32,linux）——
+ * macOS 的红绿灯由系统画、永远彩色，不吃 symbolColor，调了就是未定义行为。
+ */
 function syncWindowTheme(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setBackgroundColor(currentWindowBg())
-    mainWindow.setTitleBarOverlay(currentTitleBarOverlay())
+    if (process.platform === 'win32') {
+      mainWindow.setTitleBarOverlay(currentTitleBarOverlay())
+    }
   }
   float?.setBackground(currentFloatBg())
 }
@@ -390,9 +396,11 @@ function createMainWindow(): BrowserWindow {
     title: '喝水提醒',
     icon: appIconPath(),
     backgroundColor: currentWindowBg(),
-    // 原生标题栏换成自绘（原因见 TITLEBAR 注释）：页面顶上那条 .topbar 就是标题栏
+    // 原生标题栏换成自绘（原因见 TITLEBAR 注释）：页面顶上那条 .topbar 就是标题栏。
+    // overlay 对象只在 win32 传：macOS 的 titleBarStyle: 'hidden' 自己会把红绿灯
+    // 画在左上角（系统管的，不吃 symbolColor），overlay 的着色对它没意义
     titleBarStyle: 'hidden',
-    titleBarOverlay: currentTitleBarOverlay(),
+    titleBarOverlay: process.platform === 'win32' ? currentTitleBarOverlay() : undefined,
     webPreferences: {
       preload: preloadPath(),
       sandbox: false
