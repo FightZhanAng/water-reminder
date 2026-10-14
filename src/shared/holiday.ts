@@ -72,6 +72,35 @@ export function parseHolidayPayload(raw: unknown, year: number, now = Date.now()
   return { year, holidays, workdays, updatedAt: now }
 }
 
+/** 'MM-DD' → 名称 的表；形状不对就整份数据作废 */
+function isDateNameMap(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  return Object.entries(value).every(
+    ([key, name]) => /^\d{2}-\d{2}$/.test(key) && typeof name === 'string'
+  )
+}
+
+/**
+ * 本地缓存里的日历还能不能用。
+ *
+ * 读盘和读网络必须是同一套严格：缓存是躺在磁盘上的 JSON，被手改、被别的
+ * 工具改写、写到一半断电，都可能留下「能 JSON.parse 但缺字段」的对象。
+ * 只校验 year / updatedAt 的话，这种对象会一路进到 resolveWorkday ——
+ * 那边一句 `key in calendar.workdays` 直接抛 TypeError，而它跑在
+ * 10 秒一次的巡检里，于是每 10 秒崩一次，提醒功能整个停摆。
+ * 校验不过的后果只是「当作没有这一年的数据」：判定回退到按星期，
+ * 界面上照旧提示去更新 —— 这正是节假日模块缺数据时该有的样子。
+ */
+export function isUsableCalendar(value: unknown, year: number): value is HolidayCalendar {
+  if (typeof value !== 'object' || value === null) return false
+  const cal = value as Partial<HolidayCalendar>
+  if (cal.year !== year) return false
+  if (typeof cal.updatedAt !== 'number' || !Number.isFinite(cal.updatedAt)) return false
+  if (!isDateNameMap(cal.holidays) || !isDateNameMap(cal.workdays)) return false
+  // 两张表都空等于没有日历：宁可报「缺数据」，也别在界面上显示「已就绪：休 0 天」
+  return Object.keys(cal.holidays).length > 0 || Object.keys(cal.workdays).length > 0
+}
+
 /** 某天的判定结果；unknown = 手里没有这一年的数据 */
 export type WorkdayVerdict = 'workday' | 'rest' | 'unknown'
 

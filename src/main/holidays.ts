@@ -1,7 +1,16 @@
 import { net } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname } from 'node:path'
 import {
+  isUsableCalendar,
   parseHolidayPayload,
   type HolidayCalendar,
   type HolidayStatus
@@ -48,9 +57,10 @@ export class HolidayStore {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Record<string, unknown>
       for (const [key, value] of Object.entries(raw)) {
         const year = Number.parseInt(key, 10)
-        if (!Number.isInteger(year) || typeof value !== 'object' || value === null) continue
-        const cal = value as HolidayCalendar
-        if (cal.year === year && typeof cal.updatedAt === 'number') this.cache.set(year, cal)
+        if (!Number.isInteger(year)) continue
+        // 结构不完整的条目直接丢掉：判定会回退到按星期，总好过带着脏日历
+        // 崩在 10 秒一次的巡检里（校验规则与网络来路共用，见 isUsableCalendar）
+        if (isUsableCalendar(value, year)) this.cache.set(year, value)
       }
     } catch {
       // 没有缓存或文件损坏都从零开始，状态自然回到 missing，界面上会提示更新
@@ -63,7 +73,21 @@ export class HolidayStore {
     for (const year of years) payload[String(year)] = this.cache.get(year)!
     try {
       mkdirSync(dirname(this.filePath), { recursive: true })
-      writeFileSync(this.filePath, JSON.stringify(payload), 'utf-8')
+      /*
+       * 和数据文件同一套「临时文件 + fsync + rename」。
+       * 直接 writeFileSync 会先把原文件截断再写：这时候断电，磁盘上就是半截 JSON。
+       * 读盘校验会把半截文件判成「今年没数据」（降级按星期，不崩），但那等于把
+       * 用户刚拉下来的日历白扔一次、还只留一句「点更新到本地」——等于让他再点一次。
+       */
+      const tmp = `${this.filePath}.tmp`
+      writeFileSync(tmp, JSON.stringify(payload), 'utf-8')
+      const fd = openSync(tmp, 'r+')
+      try {
+        fsyncSync(fd)
+      } finally {
+        closeSync(fd)
+      }
+      renameSync(tmp, this.filePath)
     } catch (err) {
       // 写不进去只影响下次启动的缓存，判定功能本身不受影响
       console.error('[holiday] 缓存写入失败：', err)
