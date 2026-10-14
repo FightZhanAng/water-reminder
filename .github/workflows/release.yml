@@ -73,14 +73,21 @@ jobs:
             release/*-portable.exe
           if-no-files-found: error
 
-      # 写成幂等的：重跑同一个 tag 时不会因为 Release 已存在而再失败一次
+      # 写成幂等的：重跑同一个 tag 时不会因为 Release 已存在而再失败一次。
+      #
+      # 正文用仓库里的 docs/release-notes.md（中文要点），不用 --generate-notes：
+      # 自动生成的提交清单对用户没什么用，而每一版真正要讲清的是「哪些行为变了」。
+      # 那份文件整份替换、只写当前这一版；重跑时用 gh release edit 把正文同步回来。
       - name: 创建 Release 并挂上安装包
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "$TAG" --generate-notes
+          NOTES="docs/release-notes.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --title "喝水提醒 ${TAG#v}" --notes-file "$NOTES"
           fi
           gh release upload "$TAG" \
             release/water-reminder-*-setup.exe \

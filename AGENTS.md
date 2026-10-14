@@ -229,6 +229,10 @@ git remote set-url origin "$ORIG"     # 无论成败都要还原
 - **已经推过的 tag 不要删了重推**：会再触发一次 run；如果第一次还在跑，
   删 tag 会让它的 checkout（按 tag 名检出）失败，留下一个红叉。
 - Release 创建是幂等的（`gh release view` 判断 + `--clobber`），重跑不会报错。
+- **Release 正文来自 `docs/release-notes.md`**（`gh release create --notes-file`），
+  不是 `--generate-notes`：自动生成的提交清单对用户没什么用。发版前把那份文件
+  **整份替换**成这一版的要点（它是「这一版」的说明，不是累积变更日志）；
+  重跑同一个 tag 时工作流用 `gh release edit` 把正文同步回来。
 - **tag 用带注释的**：`git tag -a vX.Y.Z -m "喝水提醒 X.Y.Z"`。
   `v0.1.0` / `v0.2.0` 都是 annotated（`git cat-file -t` 返回 `tag`），
   `v0.3.0` 当时误用了轻量 tag（返回 `commit`），别再犯。
@@ -275,10 +279,12 @@ Release `draft=false`，两个产物各约 95 MB：
 
 ## 4. 发版流程
 
-版本号只有两处，改完自查一遍：
+版本号出现在三处，改完自查一遍：
 
 1. `package.json` 的 `version`
 2. `README.md`：`release/` 产物表里的文件名、以及「发布版本」里的 `git tag` 示例
+3. `docs/release-notes.md`：标题与安装表里的产物名 —— 这份文件直接作为 Release 正文
+   （见 §3.3），发版时整份换成这一版的要点
 
 ```powershell
 # 1) 推送前必须全绿（CI 跑的也是这几步）
