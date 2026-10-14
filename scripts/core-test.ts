@@ -8,8 +8,17 @@
  * 跑法：pnpm test:core
  */
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
-import { isActiveDate, nextReminderAt } from '../src/shared/schedule'
-import { parseHolidayPayload, resolveWorkday } from '../src/shared/holiday'
+import {
+  activeWindowAt,
+  isActiveDate,
+  nextAfterDrink,
+  nextQuietRetryAt,
+  nextReminderAt
+} from '../src/shared/schedule'
+import { isUsableCalendar, parseHolidayPayload, resolveWorkday } from '../src/shared/holiday'
+import { formatClockWithDay } from '../src/shared/date'
+import { sanitizeLog, sanitizeLogs } from '../src/shared/logs'
+import { sanitizeSettingsPatch } from '../src/shared/settings'
 import { recentDays, streakDays } from '../src/shared/stats'
 import { isThemePref, THEME_PREFS } from '../src/shared/theme'
 import {
@@ -339,6 +348,251 @@ check('跨节假日跳到补班日窗口起点', nextReminderAt(holidayMode, at(
 check('周五晚跳到周六补班日', nextReminderAt(holidayMode, at(2026, 2, 13, 21, 30), cal2026), at(2026, 2, 14, 9, 0))
 check('普通周五晚跳周一', nextReminderAt(holidayMode, at(2026, 3, 6, 21, 30), cal2026), at(2026, 3, 9, 9, 0))
 check('缺数据时周五晚跳周一', nextReminderAt(holidayMode, at(2026, 2, 13, 21, 30), null), at(2026, 2, 16, 9, 0))
+
+console.log('\n--- 打卡后的下一次提醒（必须真落在窗口内） ---')
+// 这一组盯的是一个真实缺陷：朴素「现在 + 间隔」当时只比了窗口的上界，
+// 而 activeWindowAt 对窗口起点之前的时刻照样返回当天的窗口对象，
+// 于是 08:00 记一杯 → 下次提醒被排到 08:45，而窗口 09:00 才开始。
+// 「不变量」那两条比单点更重要：单点只能钉住想得到的那几个时刻。
+check('打卡在窗口前 → 回到窗口起点', nextAfterDrink(base, at(2026, 9, 16, 7, 0)), at(2026, 9, 16, 9, 0))
+check('窗口前一刻打卡 → 回到窗口起点', nextAfterDrink(base, at(2026, 9, 16, 8, 0)), at(2026, 9, 16, 9, 0))
+check('窗口内的朴素点原样保留', nextAfterDrink(base, at(2026, 9, 16, 8, 30)), at(2026, 9, 16, 9, 15))
+check('窗口末尾打卡 → 次日窗口起点', nextAfterDrink(base, at(2026, 9, 16, 20, 30)), at(2026, 9, 17, 9, 0))
+check('深夜打卡不排到凌晨', nextAfterDrink(base, at(2026, 9, 16, 23, 30)), at(2026, 9, 17, 9, 0))
+check('周五晚打卡 → 周一窗口起点', nextAfterDrink(weekdays, at(2026, 9, 18, 20, 30)), at(2026, 9, 21, 9, 0))
+check(
+  '节假日打卡 → 补班日窗口起点',
+  nextAfterDrink(holidayMode, at(2026, 1, 1, 10, 0), cal2026),
+  at(2026, 1, 4, 9, 0)
+)
+{
+  const probes = [0, 7, 8, 9, 12, 20, 23].map((h) => at(2026, 9, 16, h, h === 20 ? 30 : 0))
+  // activeWindowAt 现在回答「此刻处在哪个窗口里」（终点算在内、窗口可跨夜），
+  // 于是「排出来的点必须是窗口内的点」就是一句 null 判断
+  const outside = probes
+    .map((ts) => nextAfterDrink(base, ts))
+    .filter((ts) => activeWindowAt(base, ts) === null)
+  check('不变量：打卡排出的点全部落在窗口内', outside.length, 0)
+}
+
+console.log('\n--- 静默重试点也必须是合法提醒点 ---')
+// 另一条真实缺陷：人离开后直接写「now + 5 分钟」，不看窗口也不看日期。
+// 窗口终点那个提醒点（21:00 正好是栅格点）顺延 5 分钟就跑到窗口外；
+// 窗口终点贴近午夜时会顺延到次日，于是在「仅工作日」下于周六弹通知。
+check('窗口终点的重试 → 次日窗口起点', nextQuietRetryAt(base, at(2026, 9, 16, 21, 0)), at(2026, 9, 17, 9, 0))
+check('窗口起点的重试 → 第一个栅格点', nextQuietRetryAt(base, at(2026, 9, 16, 9, 0)), at(2026, 9, 16, 9, 45))
+check('窗口内的重试 → 下一个栅格点', nextQuietRetryAt(base, at(2026, 9, 16, 10, 30)), at(2026, 9, 16, 11, 15))
+check(
+  '周五深夜的重试不落到周六',
+  nextQuietRetryAt({ ...base, weekdaysOnly: true, intervalMin: 5, activeEnd: '23:59' }, at(2026, 9, 18, 23, 55)),
+  at(2026, 9, 21, 9, 0)
+)
+{
+  const grid = [at(2026, 9, 16, 9, 0), at(2026, 9, 16, 10, 30), at(2026, 9, 16, 20, 30), at(2026, 9, 16, 21, 0)]
+  const outside = grid
+    .map((ts) => nextQuietRetryAt(base, ts))
+    .filter((ts) => activeWindowAt(base, ts) === null)
+  check('不变量：静默重试排出的点全部落在窗口内', outside.length, 0)
+}
+
+console.log('\n--- 跨夜窗口（结束时间不晚于开始时间即为次日） ---')
+// 窗口归属它的开始日：21:00–09:00 的窗口里，凌晨那半截算「开始日」那天的。
+// 这条归属决定「仅工作日 / 法定节假日」按哪一天判定，也决定栅格从哪一刻起算 ——
+// 所以凌晨的点不是「第二天的第一个点」，而是同一个窗口里的点。
+const night: Settings = { ...base, activeStart: '21:00', activeEnd: '09:00' }
+const nightWeekday: Settings = { ...night, weekdaysOnly: true }
+const nightHoliday: Settings = { ...night, weekdaysOnly: true, weekdayMode: 'holiday' }
+const allDay: Settings = { ...base, activeStart: '09:00', activeEnd: '09:00' }
+
+check(
+  '夜里 22:00 落在当天 21:00 起的窗口里',
+  activeWindowAt(night, at(2026, 9, 16, 22, 0))?.start,
+  at(2026, 9, 16, 21, 0)
+)
+check(
+  '跨夜窗口的终点落在次日早上',
+  activeWindowAt(night, at(2026, 9, 16, 22, 0))?.end,
+  at(2026, 9, 17, 9, 0)
+)
+check(
+  '凌晨 3 点属于前一天开始的那一份窗口',
+  activeWindowAt(night, at(2026, 9, 17, 3, 0))?.start,
+  at(2026, 9, 16, 21, 0)
+)
+check('白天（10:00–21:00 之间）不在任何窗口里', activeWindowAt(night, at(2026, 9, 17, 12, 0)), null)
+check('跨夜窗口内照旧按栅格推进', nextReminderAt(night, at(2026, 9, 16, 22, 0)), at(2026, 9, 16, 22, 30))
+check('提醒点可以落在午夜之后', nextReminderAt(night, at(2026, 9, 16, 23, 50)), at(2026, 9, 17, 0, 0))
+check('窗口结束后排到当晚窗口起点', nextReminderAt(night, at(2026, 9, 17, 10, 0)), at(2026, 9, 17, 21, 0))
+check('白天排到当晚窗口起点', nextReminderAt(night, at(2026, 9, 17, 12, 0)), at(2026, 9, 17, 21, 0))
+check('跨夜窗口里打卡：朴素点仍在时段内', nextAfterDrink(night, at(2026, 9, 16, 23, 30)), at(2026, 9, 17, 0, 15))
+check('窗口结束前打卡：排到当晚窗口起点', nextAfterDrink(night, at(2026, 9, 17, 8, 30)), at(2026, 9, 17, 21, 0))
+check(
+  '仅工作日：周五深夜的点仍成立（窗口归周五）',
+  nextReminderAt(nightWeekday, at(2026, 9, 18, 23, 50)),
+  at(2026, 9, 19, 0, 0)
+)
+check(
+  '仅工作日：周六凌晨仍处在前一晚（周五）的窗口里',
+  activeWindowAt(nightWeekday, at(2026, 9, 19, 3, 0))?.start,
+  at(2026, 9, 18, 21, 0)
+)
+check(
+  '仅工作日：周日凌晨没有窗口（归属周六=休息日）',
+  activeWindowAt(nightWeekday, at(2026, 9, 20, 3, 0)),
+  null
+)
+check(
+  '仅工作日：周六凌晨不提醒（窗口归周六）',
+  nextReminderAt(nightWeekday, at(2026, 9, 20, 3, 0)),
+  at(2026, 9, 21, 21, 0)
+)
+check('仅工作日：休息日当晚不排提醒', nextReminderAt(nightWeekday, at(2026, 9, 19, 22, 0)), at(2026, 9, 21, 21, 0))
+check(
+  '节假日凌晨仍归前一工作日的窗口',
+  nextReminderAt(nightHoliday, at(2026, 1, 1, 2, 0), cal2026),
+  at(2026, 1, 1, 2, 15)
+)
+check(
+  '连续假期不排提醒，跳到补班日当晚',
+  nextReminderAt(nightHoliday, at(2026, 1, 1, 22, 0), cal2026),
+  at(2026, 1, 4, 21, 0)
+)
+check('起止相同 = 全天时段', activeWindowAt(allDay, at(2026, 9, 16, 15, 0))?.start, at(2026, 9, 16, 9, 0))
+check('全天时段照常按栅格推进', nextReminderAt(allDay, at(2026, 9, 16, 10, 0)), at(2026, 9, 16, 10, 30))
+{
+  const probes = [
+    at(2026, 9, 16, 22, 0),
+    at(2026, 9, 17, 3, 0),
+    at(2026, 9, 17, 8, 30),
+    at(2026, 9, 17, 20, 0),
+    at(2026, 9, 18, 23, 50)
+  ]
+  const outside = probes
+    .map((ts) => nextReminderAt(night, ts))
+    .filter((ts) => activeWindowAt(night, ts) === null)
+  check('不变量：跨夜窗口排出的点也落在时段内', outside.length, 0)
+}
+
+console.log('\n--- 本地缓存里的日历能不能用 ---')
+// 读盘路径原本只校验 year / updatedAt：缺 holidays / workdays 的对象能进到
+// resolveWorkday，那句 `key in undefined` 抛的 TypeError 跑在 10 秒一次的巡检里。
+// 校验不过是「当作没有这一年的数据」，判定回退按星期，界面提示去更新。
+check('完整日历通过', isUsableCalendar(cal2026, 2026), true)
+check('缺 holidays 字段被拒', isUsableCalendar({ year: 2026, workdays: {}, updatedAt: STAMP }, 2026), false)
+check(
+  'workdays 是数组被拒',
+  isUsableCalendar({ year: 2026, holidays: { '01-01': '元旦' }, workdays: [], updatedAt: STAMP }, 2026),
+  false
+)
+check('年份对不上被拒', isUsableCalendar(cal2026, 2025), false)
+check(
+  'updatedAt 缺失被拒',
+  isUsableCalendar({ year: 2026, holidays: { '01-01': '元旦' }, workdays: {} }, 2026),
+  false
+)
+check(
+  'updatedAt 是 NaN 被拒',
+  isUsableCalendar({ year: 2026, holidays: { '01-01': '元旦' }, workdays: {}, updatedAt: Number.NaN }, 2026),
+  false
+)
+check(
+  '日期键格式非法被拒',
+  isUsableCalendar({ year: 2026, holidays: { '1-1': '元旦' }, workdays: {}, updatedAt: STAMP }, 2026),
+  false
+)
+check(
+  '名称不是字符串被拒',
+  isUsableCalendar({ year: 2026, holidays: { '01-01': 1 }, workdays: {}, updatedAt: STAMP }, 2026),
+  false
+)
+check('两张表都空被拒（等于没有日历）', isUsableCalendar({ year: 2026, holidays: {}, workdays: {}, updatedAt: STAMP }, 2026), false)
+check('null 被拒', isUsableCalendar(null, 2026), false)
+
+console.log('\n--- 设置项的合法化规则（渲染层 patch 与读盘共用一份） ---')
+// 读盘路径原本完全不校验，实测：intervalMin 写成 "abc" → intervalMsOf 变 NaN →
+// 当天剩下的提醒全丢、退化成一天一次；写成 null → 走 Number(null)=0 被夹成 5 分钟，
+// 比用户设的 45 分钟响得还勤；时段写成非法时刻 → 窗口失效、提醒退回按间隔乱弹。
+// 三条都是「响得不对」而不是报错，所以只能靠用例钉住。
+const fullRoundTrip = sanitizeSettingsPatch({ ...DEFAULT_SETTINGS })
+check(
+  '全量设置过一遍规则后一个字段都不少（加新设置项时必须同步规则）',
+  Object.keys(DEFAULT_SETTINGS)
+    .filter((key) => !(key in fullRoundTrip))
+    .join(','),
+  ''
+)
+check('intervalMin 是字符串 → 回落默认值', sanitizeSettingsPatch({ intervalMin: 'abc' }).intervalMin, 45)
+check('intervalMin 是 NaN → 回落默认值', sanitizeSettingsPatch({ intervalMin: Number.NaN }).intervalMin, 45)
+check(
+  'intervalMin 是 null → 回落默认值（不是被夹成 5 分钟）',
+  sanitizeSettingsPatch({ intervalMin: null }).intervalMin,
+  45
+)
+check('intervalMin 是数字字符串 → 照常取用', sanitizeSettingsPatch({ intervalMin: '60' }).intervalMin, 60)
+check('intervalMin 超出上限 → 夹紧', sanitizeSettingsPatch({ intervalMin: 9999 }).intervalMin, 240)
+check('dailyGoal 低于下限 → 夹紧', sanitizeSettingsPatch({ dailyGoal: 10 }).dailyGoal, 500)
+check('时段格式非法 → 丢掉该键', sanitizeSettingsPatch({ activeStart: '99:99' }).activeStart, undefined)
+check('时段合法 → 保留', sanitizeSettingsPatch({ activeStart: '21:00' }).activeStart, '21:00')
+check('weekdayMode 乱码 → 丢掉', sanitizeSettingsPatch({ weekdayMode: '周末也提醒' }).weekdayMode, undefined)
+check('theme 乱码 → 丢掉', sanitizeSettingsPatch({ theme: 'midnight' }).theme, undefined)
+check('未知键不会进设置', Object.keys(sanitizeSettingsPatch({ 未知字段: 1 })).length, 0)
+check('非对象输入 → 空 patch', Object.keys(sanitizeSettingsPatch('oops')).length, 0)
+check('null 输入 → 空 patch', Object.keys(sanitizeSettingsPatch(null)).length, 0)
+check('缺的键不会被补上（patch 语义：不动它）', sanitizeSettingsPatch({}).intervalMin, undefined)
+
+console.log('\n--- 时刻文案：不在今天就必须写清是哪天 ---')
+// 跨夜时段下「下次提醒 09:00」分不清是今早还是明早；「暂停至 04:00」同理
+// （最长暂停 8 小时，晚上暂停必然跨到次日）
+const noon = at(2026, 9, 16, 12, 0)
+check('今天只显示时分', formatClockWithDay(at(2026, 9, 16, 9, 45), noon), '09:45')
+check('明天加「明天」前缀', formatClockWithDay(at(2026, 9, 17, 9, 0), noon), '明天 09:00')
+check('跨夜的提醒点分得清是哪天', formatClockWithDay(at(2026, 9, 17, 0, 0), at(2026, 9, 16, 23, 50)), '明天 00:00')
+check('更远写月日', formatClockWithDay(at(2026, 9, 21, 21, 0), noon), '9月21日 21:00')
+check(
+  '跨月的明天也算明天',
+  formatClockWithDay(at(2026, 10, 1, 9, 0), at(2026, 9, 30, 22, 0)),
+  '明天 09:00'
+)
+
+console.log('\n--- 记录读盘清理（ml 范围 / source 白名单 / id 去重） ---')
+// 坏记录比坏设置更外露：source 是对象时，渲染层那句
+// `SOURCE_LABEL[log.source] ?? log.source` 会把对象交给 React 当子节点 —— 直接白屏。
+// ml 是 0/负数则会让今日合计、连续达标、近 7 天全跟着错，且从界面上看不出来。
+const mint = (() => {
+  let n = 0
+  return () => `mint-${(n += 1)}`
+})()
+const rec = (over: Record<string, unknown> = {}) => ({
+  id: 'l1',
+  ml: 250,
+  ts: at(2026, 9, 16, 9, 0),
+  source: 'manual',
+  ...over
+})
+
+check('正常记录原样保留', sanitizeLogs([rec()], mint).length, 1)
+check('source 是对象 → 回落 manual（否则渲染层会白屏）', sanitizeLog(rec({ source: { 恶意: 1 } }), mint)?.source, 'manual')
+check('source 是未知字符串 → 回落 manual', sanitizeLog(rec({ source: 'unknown-src' }), mint)?.source, 'manual')
+check('source 合法则保留', sanitizeLog(rec({ source: 'tray' }), mint)?.source, 'tray')
+check('ml 是 0 → 丢掉整条', sanitizeLog(rec({ ml: 0 }), mint), null)
+check('ml 是负数 → 丢掉整条', sanitizeLog(rec({ ml: -500 }), mint), null)
+check('ml 超上限 → 夹到区间内（不丢记录）', sanitizeLog(rec({ ml: 5000 }), mint)?.ml, 2000)
+check('ml 小于下限但为正 → 夹到下限', sanitizeLog(rec({ ml: 5 }), mint)?.ml, 10)
+check('ts 是 NaN → 丢掉整条', sanitizeLog(rec({ ts: Number.NaN }), mint), null)
+check('ts 是字符串 → 丢掉整条', sanitizeLog(rec({ ts: '昨天' }), mint), null)
+check('id 缺失 → 补一个', String(sanitizeLog(rec({ id: undefined }), mint)?.id).startsWith('mint-'), true)
+check('非对象 → 丢掉', sanitizeLog('oops', mint), null)
+check('整个数组不是数组 → 空', sanitizeLogs('oops', mint).length, 0)
+{
+  const dup = sanitizeLogs([rec({ id: 'same' }), rec({ id: 'same', ts: at(2026, 9, 16, 10, 0) })], mint)
+  check('id 撞车 → 重新发一个（渲染层 key 不能重复）', new Set(dup.map((l) => l.id)).size, 2)
+  const sorted = sanitizeLogs(
+    [rec({ id: 'late', ts: at(2026, 9, 16, 18, 0) }), rec({ id: 'early', ts: at(2026, 9, 16, 9, 0) })],
+    mint
+  )
+  check('按时间排序（撤销「上一次」才等于时间上最后一次）', sorted.at(-1)?.id, 'late')
+  check('坏记录不会把好记录带下水', sanitizeLogs([rec(), 'oops', null, rec({ id: 'l2', ml: -1 })], mint).length, 1)
+}
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${checks - failures}/${checks} 项通过`)
 if (failures > 0) process.exitCode = 1
