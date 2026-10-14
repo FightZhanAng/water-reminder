@@ -4,6 +4,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, w
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS, RETENTION_DAYS } from '../shared/defaults'
 import { dayKey, startOfDay } from '../shared/date'
+import { sanitizeLogs } from '../shared/logs'
+import { sanitizeSettingsPatch } from '../shared/settings'
 import { recentDays, streakDays } from '../shared/stats'
 import type { DayTotal, DrinkLog, DrinkSource, Settings } from '../shared/types'
 
@@ -53,8 +55,14 @@ export class Store {
         const raw = JSON.parse(readFileSync(this.file, 'utf-8')) as Partial<Persisted>
         return {
           version: FILE_VERSION,
-          logs: Array.isArray(raw.logs) ? raw.logs.filter(isValidLog) : [],
-          settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) }
+          // 记录逐条清理（ml 范围、source 白名单、id 去重、按时间排序）：
+          // 规则在 shared/logs.ts，跟着 test:core 一起测 —— 坏记录的后果见那份文件的注释
+          logs: sanitizeLogs(raw.logs, () => randomUUID()),
+          // 数据文件是不可信输入：可能被手改过、被旧版本写过、被别的工具改写。
+          // 规则与「渲染层推上来的 patch」共用一份（shared/settings.ts）：
+          // 非法值一律丢掉、由默认值兜底，绝不让它进到排程里 ——
+          // 一个字符串的 intervalMin 就能让当天的提醒全丢（见那份文件的注释）
+          settings: { ...DEFAULT_SETTINGS, ...sanitizeSettingsPatch(raw.settings) }
         }
       }
     } catch (err) {
@@ -126,16 +134,14 @@ export class Store {
 
   private prune(): void {
     const cutoff = startOfDay(Date.now()) - RETENTION_DAYS * 86_400_000
-    const kept = this.data.logs.filter((l) => l.ts >= cutoff)
+    // 未来时间戳也要丢：它排在数组末尾，于是「撤销上一次」会去删那条未来记录，
+    // 而今日合计里又看不到它 —— 表现就是「点了撤销没反应」。
+    // 留一天余量，正常不会碰到（时钟被改的情况也不用一刀切死）
+    const horizon = Date.now() + 86_400_000
+    const kept = this.data.logs.filter((l) => l.ts >= cutoff && l.ts <= horizon)
     if (kept.length !== this.data.logs.length) {
       this.data.logs = kept
       this.flush()
     }
   }
-}
-
-function isValidLog(value: unknown): value is DrinkLog {
-  if (!value || typeof value !== 'object') return false
-  const l = value as Partial<DrinkLog>
-  return typeof l.id === 'string' && typeof l.ml === 'number' && typeof l.ts === 'number'
 }

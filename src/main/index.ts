@@ -13,8 +13,11 @@ import {
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { dayKey, isValidHM } from '../shared/date'
-import { isWeekdayMode, type HolidayStatus } from '../shared/holiday'
+import { dayKey } from '../shared/date'
+import { DEFAULT_SETTINGS } from '../shared/defaults'
+import { type HolidayStatus } from '../shared/holiday'
+import { MAX_ML, MIN_ML } from '../shared/logs'
+import { clampNumber, sanitizeSettingsPatch } from '../shared/settings'
 import { isThemePref, type ResolvedTheme } from '../shared/theme'
 import { isTrustedReleaseUrl, type UpdateCheck, type UpdateDownload } from '../shared/update'
 import type { AppState, DrinkSource, FloatMetrics, FloatState, Settings } from '../shared/types'
@@ -437,14 +440,9 @@ function showMainWindow(): void {
 
 /* --------------------------------------------------------------- 业务动作 */
 
-function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
-  const n = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(n)) return fallback
-  return Math.min(max, Math.max(min, Math.round(n)))
-}
-
 function sanitizeMl(value: unknown): number {
-  return clampNumber(value, 10, 2000, 250)
+  // 范围和读盘清理共用一对常量（shared/logs.ts），别在这儿另写 10 / 2000
+  return clampNumber(value, MIN_ML, MAX_ML, DEFAULT_SETTINGS.cupSize)
 }
 
 function addDrink(ml: number, source: DrinkSource): AppState {
@@ -482,29 +480,9 @@ function handleFire(): void {
 }
 
 function applySettings(patch: Partial<Settings>): AppState {
-  const clean: Partial<Settings> = {}
-  if (patch.dailyGoal !== undefined) clean.dailyGoal = clampNumber(patch.dailyGoal, 500, 8000, 2000)
-  if (patch.intervalMin !== undefined) clean.intervalMin = clampNumber(patch.intervalMin, 5, 240, 45)
-  if (patch.activeStart !== undefined && isValidHM(patch.activeStart)) clean.activeStart = patch.activeStart
-  if (patch.activeEnd !== undefined && isValidHM(patch.activeEnd)) clean.activeEnd = patch.activeEnd
-  if (patch.weekdaysOnly !== undefined) clean.weekdaysOnly = Boolean(patch.weekdaysOnly)
-  if (patch.weekdayMode !== undefined && isWeekdayMode(patch.weekdayMode))
-    clean.weekdayMode = patch.weekdayMode
-  if (patch.notifyEnabled !== undefined) clean.notifyEnabled = Boolean(patch.notifyEnabled)
-  if (patch.soundEnabled !== undefined) clean.soundEnabled = Boolean(patch.soundEnabled)
-  if (patch.floatEnabled !== undefined) clean.floatEnabled = Boolean(patch.floatEnabled)
-  if (patch.floatTransparent !== undefined)
-    clean.floatTransparent = Boolean(patch.floatTransparent)
-  if (patch.floatAutoHideSec !== undefined)
-    clean.floatAutoHideSec = clampNumber(patch.floatAutoHideSec, 5, 120, 20)
-  if (patch.cupSize !== undefined) clean.cupSize = clampNumber(patch.cupSize, 50, 1000, 250)
-  if (patch.quietWhenIdle !== undefined) clean.quietWhenIdle = Boolean(patch.quietWhenIdle)
-  if (patch.idleThresholdMin !== undefined)
-    clean.idleThresholdMin = clampNumber(patch.idleThresholdMin, 1, 120, 8)
-  if (patch.autoLaunch !== undefined) clean.autoLaunch = Boolean(patch.autoLaunch)
-  if (patch.theme !== undefined && isThemePref(patch.theme)) clean.theme = patch.theme
-  if (patch.autoCheckUpdate !== undefined)
-    clean.autoCheckUpdate = Boolean(patch.autoCheckUpdate)
+  // 规则在 shared/settings.ts，和「读数据文件」用的是同一份：
+  // 两处各写一遍必然会漂，而漂掉的后果是「响得不对」，不是报错
+  const clean = sanitizeSettingsPatch(patch)
 
   const wasFloatEnabled = store.settings.floatEnabled
   const wasAutoCheck = store.settings.autoCheckUpdate
