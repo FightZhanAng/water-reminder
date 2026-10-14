@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatStamp } from '@shared/date'
+import { formatStamp, parseHM } from '@shared/date'
 import type { HolidayStatus } from '@shared/holiday'
 import type { FloatState, Settings } from '@shared/types'
 
@@ -177,6 +177,21 @@ export default function SettingsPanel({
     }
   }
 
+  /*
+   * 活跃时段可以跨夜：结束时间不晚于开始时间就是「到次日」（两者相同即整天）。
+   * 这件事必须在界面上写清楚 —— 光摆一个「至」，用户看不出 21:00 – 09:00
+   * 指的是「晚上九点到次日早上九点」还是「白天九点到晚上九点」。
+   */
+  const fromHM = parseHM(settings.activeStart)
+  const toHM = parseHM(settings.activeEnd)
+  const sameHM = toHM.h * 60 + toHM.m === fromHM.h * 60 + fromHM.m
+  const overnight = toHM.h * 60 + toHM.m < fromHM.h * 60 + fromHM.m
+  const windowNote = sameHM
+    ? `起止时间相同 = 全天时段，每 ${settings.intervalMin} 分钟提醒一次（含夜间）`
+    : overnight
+      ? `跨夜时段：从 ${settings.activeStart} 一直提醒到次日 ${settings.activeEnd}`
+      : null
+
   return (
     <section className="card">
       <div className="card-head">
@@ -241,6 +256,11 @@ export default function SettingsPanel({
               />
             </span>
           </div>
+          {windowNote && (
+            <p className="hint">
+              <span>{windowNote}</span>
+            </p>
+          )}
           <Toggle
             label="只在工作日提醒"
             hint="开启后可选判定方式：按星期，或按法定节假日（含调休）"

@@ -1,12 +1,17 @@
 import { powerMonitor } from 'electron'
-import { intervalMsOf, nextReminderAt, type ActiveWindow, activeWindowAt } from '../shared/schedule'
+import {
+  activeWindowAt,
+  intervalMsOf,
+  nextAfterDrink,
+  nextQuietRetryAt,
+  nextReminderAt,
+  type ActiveWindow
+} from '../shared/schedule'
 import type { HolidayCalendar } from '../shared/holiday'
 import type { Settings } from '../shared/types'
 
 /** 状态巡检周期。10 秒足够，且远比 1 秒省电 */
 const TICK_MS = 10_000
-/** 因为人离开而静默后，多久再试一次 */
-const QUIET_RETRY_MS = 5 * 60_000
 /** 错过超过这个倍数的间隔，就认定是「睡了一觉」，不再补提醒 */
 const STALE_FACTOR = 1.5
 
@@ -91,11 +96,9 @@ export class Scheduler {
   /** 打卡后调用：从现在起重新计时，而不是继续等原来那个点 */
   resetAfterDrink(): void {
     if (this.pausedUntilValue) return
-    const naive = Date.now() + this.intervalMs
-    // 朴素间隔「现在 + 间隔」只在它是合法提醒点时成立（当天提醒 + 在窗口内）。
-    // 节假日/周末喝了杯水不该 45 分钟后照常弹通知 —— 那和「仅工作日提醒」矛盾。
-    const window = activeWindowAt(this.settings, naive, this.calendar())
-    this.cursor = window && naive <= window.end ? naive : nextReminderAt(this.settings, naive, this.calendar())
+    // 判定在 shared 里（nextAfterDrink）：朴素点得真落在窗口内才作数，
+    // 否则回到排程 —— 不然窗口开始前打的那杯水会把提醒排到窗口之外
+    this.cursor = nextAfterDrink(this.settings, Date.now(), this.calendar())
     this.hooks.onTick()
   }
 
@@ -119,7 +122,9 @@ export class Scheduler {
     }
 
     if (this.isQuiet()) {
-      this.cursor = now + QUIET_RETRY_MS
+      // 重试点也必须是合法提醒点：直接写 now + 5 分钟会让窗口终点那个提醒点
+      // 顺延到窗口之外，甚至跨到次日、在休息日弹通知 —— 详见 nextQuietRetryAt
+      this.cursor = nextQuietRetryAt(this.settings, now, this.calendar())
       this.hooks.onTick()
       return
     }
