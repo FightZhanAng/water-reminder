@@ -329,11 +329,18 @@ electron-builder 的隐式发布，它会抢在 `gh release` 之前自己去发�
 - **临时文件不进仓库**：截图、验证脚本、假数据目录一律放 `%TEMP%` 下，
   用完删掉；仓库里只留源码和文档。
 - **改设置项**要动三处：`src/shared/types.ts` 的类型、`src/shared/defaults.ts`
-  的默认值、`src/main/index.ts` 里 `applySettings` 的白名单校验
-  （老数据文件靠 `store.load()` 合并默认值来兼容，不用写迁移）。
+  的默认值、`src/shared/settings.ts` 里 `sanitizeSettingsPatch` 的规则。
+  规则只有这一份：渲染层推上来的 patch 和**读盘**（`store.load()`）共用它，
+  非法值一律丢掉、由默认值兜底，所以不用写迁移。
+  漏改会被 `pnpm test:core` 里那条「全量设置过一遍规则后一个字段都不少」点名，
+  不用靠人记着。
 - **改核心逻辑**（`src/shared/schedule.ts`、`stats.ts`、`theme.ts`、`update.ts`、
   `holiday.ts`）就补 `scripts/core-test.ts` 的用例 —— 这些模块不依赖 Electron，
   能脱离窗口直接跑。
+- **读盘的记录要过 `src/shared/logs.ts` 的 `sanitizeLogs`**：新增记录字段时
+  同步加进清理规则。渲染层拿到非法值不是显示乱码，是整棵树被卸载 ——
+  实测 `source` 是对象时 React 报 #31（Objects are not valid as a React child）、
+  `#root` 长度归零、窗口一片空白，而主进程一点异常都没有。
 
 ---
 
