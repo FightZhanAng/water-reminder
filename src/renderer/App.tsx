@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { formatClock } from '@shared/date'
+import { formatClockWithDay } from '@shared/date'
 import AboutMenu from './components/AboutMenu'
 import DropMark from './components/DropMark'
 import QuickLog from './components/QuickLog'
@@ -43,7 +43,8 @@ export default function App(): React.JSX.Element {
 
   const countdown = useMemo(() => {
     if (!state) return ''
-    if (state.pausedUntil) return `暂停至 ${formatClock(state.pausedUntil)}`
+    // 暂停最长 8 小时，晚上暂停必然跨到次日：不写清是哪天，「暂停至 04:00」看不出来
+    if (state.pausedUntil) return `暂停至 ${formatClockWithDay(state.pausedUntil)}`
     if (!state.nextAt) return '今日不再提醒'
     const diff = state.nextAt - now
     if (diff <= 0) return '马上提醒'

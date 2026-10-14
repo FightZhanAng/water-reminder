@@ -1,5 +1,5 @@
 import { Menu, Tray, type MenuItemConstructorOptions } from 'electron'
-import { formatClock } from '../shared/date'
+import { formatClockWithDay } from '../shared/date'
 import { QUICK_AMOUNTS } from '../shared/defaults'
 import type { AppState } from '../shared/types'
 import { trayIconImage } from './paths'
@@ -38,10 +38,11 @@ export class TrayController {
     if (!this.tray) return
 
     const percent = state.today.goal > 0 ? state.today.total / state.today.goal : 0
+    // 带日前缀：跨夜时段里「下次提醒 09:00」可能指的是明早（详见 formatClockWithDay）
     const nextLabel = state.pausedUntil
-      ? `已暂停至 ${formatClock(state.pausedUntil)}`
+      ? `已暂停至 ${formatClockWithDay(state.pausedUntil)}`
       : state.nextAt
-        ? `下次提醒 ${formatClock(state.nextAt)}`
+        ? `下次提醒 ${formatClockWithDay(state.nextAt)}`
         : '今日不再提醒'
 
     // 只在可见内容真的变了时才重建菜单，避免每 10 秒白干一次
